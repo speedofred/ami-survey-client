@@ -19,6 +19,7 @@ import traceback
 from typing import Any
 
 from . import client, config
+from . import text as ami_text
 from . import adapters
 from .timeutil import normalize, parse_ts, utcnow
 
@@ -91,11 +92,17 @@ def _save_pending(markers: list[dict]) -> None:
 
 
 def _buffer_marker(args: dict, reason: str) -> dict:
-    stage = (args.get("stage") or "").strip()
-    if not stage:
+    # Normalised here, with the same rule the API applies, so what is echoed to
+    # the agent is what will be stored. Echoing the raw text instead told an
+    # agent its marker read "Score &amp; Tier Candidates"; it concluded it had
+    # corrupted the name and sent a corrective duplicate, which is in the record.
+    stage = ami_text.normalise(args.get("stage"))
+    if not stage and not args.get("closes"):
         raise ValueError("stage is required.")
+    stage = stage or "(declared stages complete)"
     marker = {
         "stage": stage,
+        "closes": bool(args.get("closes")),
         "marked_at": normalize(args.get("marked_at")) or utcnow(),
         "note": (args.get("note") or "").strip() or None,
         "cwd": args.get("cwd") or os.getcwd(),
@@ -158,6 +165,7 @@ def _adopt_pending(run_id: str, cwd: str, window_start: str | None) -> dict:
                 f"/runs/{run_id}/stages",
                 {
                     "stage": m["stage"],
+                    "closes": bool(m.get("closes")),
                     "marked_at": m["marked_at"],
                     "note": m.get("note"),
                     "recorded_before_run_opened": True,
@@ -280,6 +288,7 @@ def t_mark_stage(args: dict) -> dict:
             f"/runs/{run_id}/stages",
             {
                 "stage": args.get("stage"),
+                "closes": bool(args.get("closes")),
                 "marked_at": args.get("marked_at"),
                 "note": args.get("note"),
             },
@@ -398,8 +407,10 @@ def t_submit_survey(args: dict) -> dict:
     return {
         **result,
         "instruction": (
-            "Survey persisted. Report the saved file paths and the headline numbers "
-            "to the human exactly as returned."
+            "Survey persisted. Report the saved links and the headline numbers to "
+            "the human exactly as returned - including the ?key=... on each link, "
+            "which is what lets them open their own report in a browser. Report "
+            "any warnings too; they are limits on how far the numbers can be read."
         ),
     }
 
@@ -559,12 +570,23 @@ TOOLS: list[dict] = [
             "declared-stage Agent Effort Profile; without markers the profile falls "
             "back to AMI-observed execution phases. No survey run is needed first: "
             "markers emitted before ami_survey_begin are buffered with the timestamp "
-            "you emitted them at and attached to the run when it opens."
+            "you emitted them at and attached to the run when it opens. "
+            "When the last stage is done, call once more with closes=true - each "
+            "marker ends the stage before it, so without a closing one the final "
+            "stage runs to the end of the measurement window and absorbs everything "
+            "you do afterwards."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "stage": {"type": "string", "description": "Name of the stage being entered."},
+                "closes": {
+                    "type": "boolean",
+                    "description": "True to end declared work rather than start a stage. "
+                                   "Call this when the final stage is complete, before "
+                                   "you verify output or report back; work after it is "
+                                   "attributed to observed phases instead of to a stage.",
+                },
                 "run_id": {"type": "string"},
                 "marked_at": {"type": "string", "description": "ISO-8601; defaults to now."},
                 "note": {"type": "string"},
@@ -574,7 +596,6 @@ TOOLS: list[dict] = [
                                    "adopted by a run opened in the same workspace.",
                 },
             },
-            "required": ["stage"],
         },
         "handler": t_mark_stage,
     },
@@ -713,6 +734,26 @@ def _call_tool(name: str, arguments: dict) -> dict:
         result = handler(arguments or {})
     except client.ApiCallFailed as exc:
         payload = exc.payload if isinstance(exc.payload, dict) else {"error": str(exc.payload)}
+        # An agent that is only told "Unrecognised token" will try again, and
+        # again, because retrying is what a transient failure deserves. This one
+        # is not transient: nothing the agent can do will make the same token
+        # valid, so say so in the response rather than leaving it to be inferred.
+        if exc.status in (401, 403):
+            payload = {
+                **payload,
+                "terminal": True,
+                "retrying_will_not_help": (
+                    "This is an authentication failure, not a transient error. "
+                    "The same request will fail identically every time."
+                ),
+                "what_to_do": (
+                    "Stop, and tell the human their survey token is missing, "
+                    "revoked or wrong - it is configured on their machine and "
+                    "only they can change it. Do not retry, and do not fall back "
+                    "to reporting the numbers yourself: an unsubmitted survey is "
+                    "recoverable, an invented one is not."
+                ),
+            }
         return {
             "content": [{"type": "text", "text": json.dumps(payload, indent=2)}],
             "isError": True,

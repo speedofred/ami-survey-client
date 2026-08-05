@@ -40,7 +40,17 @@ ami_mark_stage(stage: "Classify Ticket Severity")
 ... do that part of the work ...
 ami_mark_stage(stage: "Draft Customer Response")
 ... do that part of the work ...
+ami_mark_stage(closes: true)          <- the workflow itself is now finished
 ```
+
+**Close the last stage.** Each marker ends the stage before it, so every stage
+except the final one has a boundary. Without `closes: true` the last one runs to
+the end of the measurement window and collects everything you do afterwards -
+checking your own output, writing your closing message, retrying a failed survey
+call. On a real run that made one stage hold 15 of 26 calls and two thirds of the
+input tokens, and the numbers said nothing about it. Call it once, the moment the
+workflow's own work is done and before you start verifying or reporting. Work
+after it is attributed to observed phases, which is what it actually is.
 
 **You do not need an open survey run to do this.** The survey is opened after the
 work finishes (step 2), so during the work there is nothing to attach a marker
@@ -189,9 +199,17 @@ Exactly the 28 fields of `Collection_Inventory.csv`, no more and no less:
   agents, check the platform and call count the tools return: a run that reports
   one call and a model you did not use is a subagent's session, not yours. Say so
   rather than submitting it.
+- **Leaving the last stage open.** A run whose final stage holds most of the calls
+  is usually a run that never closed it, not a genuinely expensive stage. The
+  submitted response says so in its warnings; `closes: true` is what prevents it.
 - **Inventing stage markers after the fact.** Stage timings come from when markers
   were actually emitted. If you did not mark stages, let the observed-phase
   fallback do its job. Marking stages *during* the work needs no open run - see
   step 1 - so there is never a reason to reconstruct them later.
 - **Renaming the workflow between runs.** Runs group by `workflow_name`; drift makes
   them incomparable.
+- **Retrying an authentication failure.** A response carrying `"terminal": true` -
+  an unrecognised, revoked or missing token - will fail identically however many
+  times you send it. Stop on the first one and tell the human: the token lives in
+  their configuration and only they can fix it. Reporting the numbers in chat
+  instead is worse than stopping, because it looks like a submission and is not.
