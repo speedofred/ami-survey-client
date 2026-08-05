@@ -93,20 +93,24 @@ Run **one** of these — whichever agent you use.
 **macOS or Linux:**
 
 ```bash
-python3 ami-survey/scripts/install.py --user  --api-url https://survey.agentbenchmark.dev   # Claude Code
-python3 ami-survey/scripts/install.py --codex --api-url https://survey.agentbenchmark.dev   # Codex
+python3 ami-survey/scripts/install.py --user    # Claude Code
+python3 ami-survey/scripts/install.py --codex   # Codex
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-python ami-survey\scripts\install.py --user  --api-url https://survey.agentbenchmark.dev   # Claude Code
-python ami-survey\scripts\install.py --codex --api-url https://survey.agentbenchmark.dev   # Codex
+python ami-survey\scripts\install.py --user    # Claude Code
+python ami-survey\scripts\install.py --codex   # Codex
 ```
 
 Either way it will ask for your token. Paste it and press Enter — **it won't
 appear on screen as you type**, which is intentional, so it isn't left behind in
 your terminal history.
+
+There is nothing to configure beyond that. Surveys go to
+`survey.agentbenchmark.dev`; the tool has no other destination, so there is no
+setting to get wrong and no way to end up measuring into a void.
 
 Codex will print a short block of configuration and ask you to paste it into a
 file. Follow what it says on screen.
@@ -336,7 +340,11 @@ anything it read or wrote, or the commands it ran. The shell commands your agent
 executed are stripped before storage, as are file paths, your username and your
 session identifiers.
 
-The measurement happens on your machine. Only the finished summary travels.
+The measurement happens on your machine. Only the finished summary travels, and
+it travels to one place: `survey.agentbenchmark.dev`, over HTTPS. This tool does
+not keep a copy for you — the survey is the shared benchmark, not a private
+report — and you can read back your own submissions, and only your own, through
+the links it prints when you submit.
 
 ---
 
@@ -379,9 +387,10 @@ The token is wrong, expired, or was revoked. Check for a stray space when you
 pasted it, then ask for a new one.
 
 **It says it submitted, but nothing arrives**
-Your agent submitted to a survey running on your own computer instead of the
-server. Re-run the install command from Step 2, making sure to include the
-`--api-url` part, then fully restart the agent.
+Ask whoever gave you the token to check. Submissions have exactly one
+destination, so a survey that reported success reached the server — but a
+revoked token or a rejected submission will say so rather than succeed
+quietly.
 
 **Windows: "python is not recognised"**
 Python was installed without being added to PATH. Re-run the python.org

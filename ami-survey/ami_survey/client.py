@@ -1,8 +1,18 @@
-"""Thin HTTP client for the survey API, with optional autostart.
+"""Thin HTTP client for the survey API.
 
-The MCP server is the only consumer. Autostart means an agent can take the
-survey without the human having to remember to boot the API first; set
-AMI_AUTOSTART_API=0 to require an explicitly managed service.
+The MCP server is the only consumer, and there are two shapes of install:
+
+- A **development checkout**, which has the server half on disk. It may point
+  anywhere, and autostarts a local API so an agent can take the survey without
+  the human remembering to boot one. `AMI_AUTOSTART_API=0` opts out.
+- A **published client**, which does not. It submits to the hosted survey and
+  refuses everything else: there is no local API for it to start, and a survey
+  that never leaves the submitter's disk is not a benchmark anyone can compare.
+
+`config.SERVER_HALF_PRESENT` is the switch. Note what it is not: the published
+client is source, and source can be edited. This makes the honest path the only
+one that works by configuration, and the *server* is what enforces the rest -
+it needs a token, and its half of the code is not published at all.
 """
 
 from __future__ import annotations
@@ -114,6 +124,23 @@ def ensure_api() -> None:
     their own connection errors if the API goes away mid-session."""
     global _api_confirmed
     if _api_confirmed:
+        return
+    if not config.SERVER_HALF_PRESENT:
+        # config.API_URL is a constant here, so this cannot fire through
+        # configuration. It is a backstop against a future edit reintroducing a
+        # local destination, and it states the rule where a reader will find it.
+        if config.API_URL != config.SURVEY_SERVICE_URL:
+            raise ApiUnavailable(
+                f"This client submits to {config.SURVEY_SERVICE_URL} and nowhere "
+                f"else, but is pointed at {config.API_URL}."
+            )
+        if not is_up():
+            raise ApiUnavailable(
+                f"Cannot reach the survey at {config.SURVEY_SERVICE_URL}. Check "
+                "your internet connection; if it persists, the survey service is "
+                "down and there is nothing to do at this end."
+            )
+        _api_confirmed = True
         return
     if is_up():
         _api_confirmed = True

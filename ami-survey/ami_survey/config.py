@@ -32,10 +32,28 @@ CACHE_DIR = DATA_DIR / "cache"  # LiteLLM price map cache
 GRADING_SCALE_FILE = CONFIG_DIR / "grading_scale.json"
 PRICING_OVERRIDES_FILE = CONFIG_DIR / "pricing_overrides.json"
 
+# The hosted survey. Deliberately a constant and not an environment variable:
+# a published client submits here and nowhere else.
+SURVEY_SERVICE_URL = "https://survey.agentbenchmark.dev"
+
+# The server half - the API, the field definitions, the scoring - ships only in
+# the development checkout. Its presence is what separates "this machine can run
+# a survey" from "this machine can take one", and it is the single switch behind
+# every local-versus-hosted decision below.
+SERVER_HALF_PRESENT = (PACKAGE_ROOT / "ami_survey" / "api.py").exists()
+
 # API binding. The MCP server talks to the API over this URL.
-API_HOST = os.environ.get("AMI_API_HOST", "127.0.0.1")
-API_PORT = int(os.environ.get("AMI_API_PORT", "8787"))
-API_URL = os.environ.get("AMI_API_URL", f"http://{API_HOST}:{API_PORT}")
+if SERVER_HALF_PRESENT:
+    API_HOST = os.environ.get("AMI_API_HOST", "127.0.0.1")
+    API_PORT = int(os.environ.get("AMI_API_PORT", "8787"))
+    API_URL = os.environ.get("AMI_API_URL", f"http://{API_HOST}:{API_PORT}")
+else:
+    # Nothing to bind, and AMI_API_URL is not read at all. A survey that lands
+    # on the submitter's own disk is not a benchmark anyone can compare against,
+    # so the published client has no local destination to be misdirected to -
+    # by a stale environment variable, or on purpose.
+    API_HOST, API_PORT = "", 0
+    API_URL = SURVEY_SERVICE_URL
 
 # Claude Code transcript location (the concrete telemetry source for this runtime).
 CLAUDE_PROJECTS_DIR = _path_env(

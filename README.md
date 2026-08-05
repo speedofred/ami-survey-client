@@ -30,16 +30,23 @@ confidently. This reads the log instead.
 
 The survey service itself — the field definitions, scoring, pricing and storage —
 is not in this repository. This half runs on your machine; that half runs on the
-server, and the two speak over HTTP.
+server, and the two speak over HTTPS.
+
+Submissions go to **`survey.agentbenchmark.dev`** and nowhere else. That is a
+constant in the source, not a setting: there is no local survey to run here, and
+a result that never left your machine would not be comparable with anyone
+else's, which is the entire point of the exercise. You need a token to submit;
+ask whoever pointed you here.
 
 ## Install
 
 ```bash
-python3 ami-survey/scripts/install.py --user --api-url <survey-url>
+python3 ami-survey/scripts/install.py --user
 ```
 
-Then restart your agent. `GETTING-STARTED.md` has the Windows form, the Codex
-form, and what to do when it does not work.
+It asks for your submission token, and that is the only thing to supply. Then
+restart your agent. `GETTING-STARTED.md` has the Windows form, the Codex form,
+and what to do when it does not work.
 
 ## Removing it
 

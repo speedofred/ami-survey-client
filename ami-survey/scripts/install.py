@@ -2,7 +2,11 @@
 
     python3 scripts/install.py --user
     python3 scripts/install.py --codex
-    python3 scripts/install.py --user --api-url https://survey.example.com
+
+A published client submits to the hosted survey and has no other destination, so
+there is nothing to point it at - it asks for your token and that is all. A
+development checkout, which carries the server half, takes `--api-url` to submit
+somewhere other than the local API it would otherwise start.
 
 Written in Python rather than shell for one decisive reason: **the interpreter
 running this script is the interpreter written into the configuration.** On
@@ -27,6 +31,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent  # .../ami-survey
 SKILLS_DIR = ROOT / "skills"
+
+# Imported rather than restated so the installer and the client can never
+# disagree about where submissions go. `config` reads no files and starts
+# nothing at import; it only resolves paths.
+sys.path.insert(0, str(ROOT))
+from ami_survey import config  # noqa: E402
 
 
 def available_skills() -> list[Path]:
@@ -88,9 +98,14 @@ def _write_json_atomically(target: Path, mutate) -> None:
 
 def server_entry(api_url: str, api_token: str) -> dict:
     env = {"PYTHONPATH": str(ROOT)}
-    if api_url:
-        # Written into the entry, never exported: a desktop agent is launched
-        # from the Dock or Start menu and inherits nothing from your terminal.
+    # Written into the entry, never exported: a desktop agent is launched from
+    # the Dock or Start menu and inherits nothing from your terminal.
+    if not config.SERVER_HALF_PRESENT:
+        # No AMI_API_URL: this client reads none. Writing one would suggest the
+        # destination is a setting, and the first thing anyone does with a
+        # setting is change it.
+        env["AMI_API_TOKEN"] = api_token
+    elif api_url:
         env |= {
             "AMI_API_URL": api_url,
             "AMI_API_TOKEN": api_token,
@@ -121,7 +136,9 @@ def install(scope: str, api_url: str, api_token: str) -> int:
     print(f"  python:   {sys.executable} ({sys.version.split()[0]})")
     print(f"  platform: {sys.platform}")
     print(f"  scope:    {scope}")
-    if api_url:
+    if not config.SERVER_HALF_PRESENT:
+        print(f"  survey:   {config.SURVEY_SERVICE_URL} (the only destination)")
+    elif api_url:
         print(f"  survey:   {api_url} (token supplied)")
     print()
 
@@ -163,7 +180,10 @@ Then FULLY QUIT and reopen Codex - it reads this only at launch.""")
     )
     print(f"mcp      -> {target} (server 'ami-survey')")
     print()
-    if not api_url:
+    if not config.SERVER_HALF_PRESENT:
+        print(f"Surveys go to {config.SURVEY_SERVICE_URL}. Nothing is kept here.")
+        print()
+    elif not api_url:
         print("API: the MCP server starts a local one on first use.")
         print(f"     To run it yourself:  {ROOT / 'bin' / 'ami-api'}")
         print()
@@ -183,20 +203,31 @@ def main(argv: list[str] | None = None) -> int:
     scope.add_argument("--codex", action="store_const", const="codex", dest="scope",
                        help="Codex: ~/.codex/skills, plus the config to paste")
     parser.add_argument("--api-url", default="",
-                        help="submit to a hosted survey instead of a local one")
+                        help="development checkouts only: submit to a hosted "
+                             "survey instead of the local API")
     parser.add_argument("--api-token", default="",
                         help="submission token; prompted for if omitted, which "
                              "keeps it out of your shell history")
     args = parser.parse_args(argv)
 
+    api_url = args.api_url
+    if not config.SERVER_HALF_PRESENT:
+        # Accepted and ignored rather than rejected: the old command line is
+        # written down in guides and in people's shell history, and failing it
+        # would teach nothing that this does not.
+        if api_url and api_url.rstrip("/") != config.SURVEY_SERVICE_URL:
+            print(f"note: --api-url is ignored; this client submits to "
+                  f"{config.SURVEY_SERVICE_URL} and nowhere else.\n", file=sys.stderr)
+        api_url = config.SURVEY_SERVICE_URL
+
     token = args.api_token
-    if args.api_url and not token:
-        token = getpass.getpass(f"Submission token for {args.api_url} (input hidden): ")
-    if args.api_url and not token:
-        print("a token is required when --api-url is given", file=sys.stderr)
+    if api_url and not token:
+        token = getpass.getpass(f"Submission token for {api_url} (input hidden): ")
+    if api_url and not token:
+        print("a token is required to submit to the survey", file=sys.stderr)
         return 1
 
-    return install(args.scope or "project", args.api_url, token)
+    return install(args.scope or "project", api_url, token)
 
 
 if __name__ == "__main__":
