@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Show which session the survey would measure. `ami-session --all` lists them all.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+exec "${AMI_PYTHON:-python3}" -m ami_survey.session_info "$@"

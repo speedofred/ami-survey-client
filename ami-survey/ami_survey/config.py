@@ -1,0 +1,83 @@
+"""Path and runtime configuration for the AMI survey system.
+
+Everything is resolved relative to the package root so the system can be moved
+or symlinked without breaking, and every path is overridable via environment
+variables so a user can point the API at a different inventory or data dir.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+PACKAGE_ROOT = Path(__file__).resolve().parent.parent  # .../ami-survey
+PROJECT_ROOT = PACKAGE_ROOT.parent  # the directory holding Collection_Inventory.csv
+
+
+def _path_env(name: str, default: Path) -> Path:
+    raw = os.environ.get(name)
+    return Path(raw).expanduser().resolve() if raw else default
+
+
+# The collection inventory is the single source of truth for the survey fields.
+INVENTORY_CSV = _path_env("AMI_INVENTORY_CSV", PROJECT_ROOT / "Collection_Inventory.csv")
+
+CONFIG_DIR = _path_env("AMI_CONFIG_DIR", PACKAGE_ROOT / "config")
+DATA_DIR = _path_env("AMI_DATA_DIR", PACKAGE_ROOT / "data")
+
+RUNS_DIR = DATA_DIR / "runs"  # in-flight runs (mutable)
+RESPONSES_DIR = DATA_DIR / "responses"  # submitted survey responses (immutable)
+CACHE_DIR = DATA_DIR / "cache"  # LiteLLM price map cache
+
+GRADING_SCALE_FILE = CONFIG_DIR / "grading_scale.json"
+PRICING_OVERRIDES_FILE = CONFIG_DIR / "pricing_overrides.json"
+
+# API binding. The MCP server talks to the API over this URL.
+API_HOST = os.environ.get("AMI_API_HOST", "127.0.0.1")
+API_PORT = int(os.environ.get("AMI_API_PORT", "8787"))
+API_URL = os.environ.get("AMI_API_URL", f"http://{API_HOST}:{API_PORT}")
+
+# Claude Code transcript location (the concrete telemetry source for this runtime).
+CLAUDE_PROJECTS_DIR = _path_env(
+    "AMI_CLAUDE_PROJECTS_DIR", Path.home() / ".claude" / "projects"
+)
+
+LITELLM_PRICE_URL = os.environ.get(
+    "AMI_LITELLM_PRICE_URL",
+    "https://raw.githubusercontent.com/BerriAI/litellm/main/"
+    "model_prices_and_context_window.json",
+)
+# Refresh the cached price map when it is older than this many seconds.
+LITELLM_CACHE_TTL_SECONDS = int(os.environ.get("AMI_LITELLM_CACHE_TTL", str(7 * 24 * 3600)))
+# Set to "0" to forbid network access; the cache/local litellm package is then the only source.
+ALLOW_NETWORK = os.environ.get("AMI_ALLOW_NETWORK", "1") != "0"
+
+# Largest request body the API will read. A survey submission is tens of KB; the
+# default leaves generous headroom while making a memory-exhaustion POST fail fast.
+MAX_BODY_BYTES = int(os.environ.get("AMI_MAX_BODY_BYTES", str(5 * 1024 * 1024)))
+# Most call records one run may carry, so a single run cannot grow unbounded.
+MAX_CALLS_PER_RUN = int(os.environ.get("AMI_MAX_CALLS_PER_RUN", "5000"))
+
+# Public-collection mode: set on a server that accepts submissions from other
+# people's agents. Call records then keep only what the survey actually measures,
+# and drop the things that describe the submitter's machine - shell commands they
+# ran, and local filesystem paths carrying their username. Off by default, so a
+# local install keeps full fidelity for its own analysis.
+PUBLIC_MODE = os.environ.get("AMI_PUBLIC_MODE", "0") == "1"
+
+# Require a bearer token on every mutating request. Off by default, so a local
+# install keeps working with no tokens at all; turn it on before exposing the
+# API to anyone else. Issue tokens with bin/ami-token.
+REQUIRE_AUTH = os.environ.get("AMI_REQUIRE_AUTH", "0") == "1"
+# Per-token sliding windows, applied only when REQUIRE_AUTH is on.
+RATE_REQUESTS_PER_MINUTE = int(os.environ.get("AMI_RATE_REQUESTS_PER_MINUTE", "60"))
+RATE_RUNS_PER_HOUR = int(os.environ.get("AMI_RATE_RUNS_PER_HOUR", "20"))
+
+# Token the client sends when talking to a server that requires one. Set this on
+# a machine whose local MCP server submits to a hosted API.
+API_TOKEN = os.environ.get("AMI_API_TOKEN", "")
+
+
+def ensure_dirs() -> None:
+    for d in (DATA_DIR, RUNS_DIR, RESPONSES_DIR, CACHE_DIR, CONFIG_DIR):
+        d.mkdir(parents=True, exist_ok=True)

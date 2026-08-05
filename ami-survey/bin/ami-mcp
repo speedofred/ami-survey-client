@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Start the AMI survey MCP server (stdio). This is what an MCP client launches.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+exec "${AMI_PYTHON:-python3}" -m ami_survey.mcp_server "$@"

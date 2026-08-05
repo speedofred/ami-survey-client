@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# The AMI survey procedure and tool schemas, packaged for any runtime.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+exec "${AMI_PYTHON:-python3}" -m ami_survey.instructions "$@"
