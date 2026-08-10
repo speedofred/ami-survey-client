@@ -118,6 +118,63 @@ def server_entry(api_url: str, api_token: str) -> dict:
     }
 
 
+#: what the agent calls itself when the installer registers on its behalf
+AGENT_NAMES = {"user": "claude-code", "codex": "codex", "project": "claude-code"}
+
+
+def register(scope: str, label: str = "") -> str:
+    """Obtain a submission token, with no human on the other end.
+
+    The installer is the only place that knows a token is needed, so it is the
+    only place that can reasonably get one. Anything else means telling somebody
+    to go and read a different page in the middle of a setup they are already
+    halfway through.
+    """
+    from ami_survey import client
+
+    if not label:
+        sys.stdout.flush()
+        try:
+            label = input(
+                "\nA short name for this token, so it can be recognised later\n"
+                "  (e.g. 'my laptop', 'the office mac'): "
+            ).strip()
+        except EOFError:
+            label = ""
+    if len(label) < 3:
+        print("\nThat name is too short to be recognisable later.", file=sys.stderr)
+        raise SystemExit(1)
+
+    print(f"\nRegistering with {config.SURVEY_SERVICE_URL} ...")
+    try:
+        result = client.post("/tokens", {
+            "label": label,
+            "agent": {"name": AGENT_NAMES.get(scope, "unknown")},
+        })
+    except client.ApiCallFailed as exc:
+        detail = exc.payload.get("error") if isinstance(exc.payload, dict) else exc.payload
+        print(f"\nThe survey refused the registration: {detail}", file=sys.stderr)
+        if exc.status == 404:
+            print("This survey is not open for self-registration. Ask whoever "
+                  "pointed you here for a token.", file=sys.stderr)
+        elif exc.status == 429:
+            print("Too many tokens have been issued recently. Wait a while, or "
+                  "ask for one directly.", file=sys.stderr)
+        raise SystemExit(1)
+    except client.ApiUnavailable as exc:
+        print(f"\nCould not reach the survey: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+
+    token = result["token"]
+    print("\n  " + token + "\n")
+    print("That is your submission token. It is shown once and is not")
+    print("recoverable - keep a copy if you want to reinstall without")
+    print("registering again. It is being written into your agent's")
+    print("configuration now, so you do not need to do anything with it.")
+    print(f"\nLimit: {result['limits']['submissions']} submissions on this token.")
+    return token
+
+
 def install(scope: str, api_url: str, api_token: str) -> int:
     if sys.version_info < (3, 9):
         print(f"This needs Python 3.9 or newer. Running under {sys.version.split()[0]}.",
@@ -208,6 +265,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--api-token", default="",
                         help="submission token; prompted for if omitted, which "
                              "keeps it out of your shell history")
+    parser.add_argument("--register", action="store_true",
+                        help="obtain a token from the survey instead of being "
+                             "given one. Same as leaving the prompt blank.")
+    parser.add_argument("--label", default="",
+                        help="name for a token being registered, so it does not "
+                             "have to be typed at a prompt")
     args = parser.parse_args(argv)
 
     api_url = args.api_url
@@ -220,14 +283,28 @@ def main(argv: list[str] | None = None) -> int:
                   f"{config.SURVEY_SERVICE_URL} and nowhere else.\n", file=sys.stderr)
         api_url = config.SURVEY_SERVICE_URL
 
+    scope = args.scope or "project"
     token = args.api_token
-    if api_url and not token:
-        token = getpass.getpass(f"Submission token for {api_url} (input hidden): ")
-    if api_url and not token:
-        print("a token is required to submit to the survey", file=sys.stderr)
-        return 1
+    if api_url and not token and args.register:
+        token = register(scope, args.label)
+    elif api_url and not token:
+        # The whole explanation goes inside the getpass prompt on purpose.
+        # getpass writes to the terminal directly while print goes to stdout, so
+        # printing the context separately lets the two arrive out of order - the
+        # question appearing above the explanation of what is being asked.
+        try:
+            token = getpass.getpass(
+                f"\nSubmitting to {api_url}\n"
+                "If you already have a submission token, paste it now.\n"
+                "If you do not, just press Enter and one will be registered for you.\n"
+                "\nToken (hidden, or Enter to register): "
+            )
+        except EOFError:
+            token = ""
+        if not token:
+            token = register(scope, args.label)
 
-    return install(args.scope or "project", api_url, token)
+    return install(scope, api_url, token)
 
 
 if __name__ == "__main__":

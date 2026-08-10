@@ -95,6 +95,37 @@ RATE_RUNS_PER_HOUR = int(os.environ.get("AMI_RATE_RUNS_PER_HOUR", "20"))
 # a machine whose local MCP server submits to a hosted API.
 API_TOKEN = os.environ.get("AMI_API_TOKEN", "")
 
+# --------------------------------------------------------------------------- #
+# self-serve admission
+# --------------------------------------------------------------------------- #
+
+# Let an agent obtain its own submission token from POST /tokens, with no human
+# in the loop. OFF by default and deliberately so: a local install has no
+# business exposing it, and turning it on is a decision about who may write to
+# your dataset. When off the endpoint does not exist at all rather than
+# refusing, so a scanner learns nothing from the difference.
+ALLOW_SELF_REGISTRATION = os.environ.get("AMI_ALLOW_SELF_REGISTRATION", "0") == "1"
+
+# Address of the reverse proxy in front of this service. Set it and the API will
+# believe the client address that proxy reports; leave it unset and every request
+# is attributed to whatever opened the socket.
+#
+# This has to fail closed. Behind a proxy every connection arrives from
+# 127.0.0.1, so without this a per-IP limit counts one bucket for the whole
+# internet - but trusting X-Forwarded-For unconditionally is worse, because then
+# any caller picks their own identity by setting a header.
+TRUSTED_PROXY = os.environ.get("AMI_TRUSTED_PROXY", "")
+
+# New tokens one address may mint per day, and a global ceiling that acts as a
+# circuit breaker if something automated finds the endpoint.
+RATE_TOKENS_PER_IP_PER_DAY = int(os.environ.get("AMI_RATE_TOKENS_PER_IP_PER_DAY", "3"))
+RATE_TOKENS_PER_DAY = int(os.environ.get("AMI_RATE_TOKENS_PER_DAY", "50"))
+
+# Lifetime submissions allowed on a token nobody vetted. Reaching it is not a
+# punishment - it is the point at which a human should look at what arrived and
+# decide whether to raise it.
+MAX_SUBMISSIONS_SELF_ISSUED = int(os.environ.get("AMI_MAX_SUBMISSIONS_SELF_ISSUED", "20"))
+
 
 def ensure_dirs() -> None:
     for d in (DATA_DIR, RUNS_DIR, RESPONSES_DIR, CACHE_DIR, CONFIG_DIR):

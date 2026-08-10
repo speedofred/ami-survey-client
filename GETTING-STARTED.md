@@ -42,8 +42,9 @@ You need three things:
 
 1. **An AI coding agent on your computer** — Claude Code or Codex. This works
    with what you already use; you don't install a new assistant.
-2. **A submission token** — a long string starting `amis_`, sent to you
-   privately. Treat it like a password.
+2. **Nothing else.** The setup gets its own submission token when you run it —
+   press Enter at the prompt and it registers one for you. If somebody has
+   already sent you a token, paste that instead; treat it like a password.
 3. **Python 3.9 or newer.**
    - **macOS** — already installed. Nothing to do.
    - **Windows** — install it from [python.org](https://www.python.org/downloads/),
@@ -104,9 +105,16 @@ python ami-survey\scripts\install.py --user    # Claude Code
 python ami-survey\scripts\install.py --codex   # Codex
 ```
 
-Either way it will ask for your token. Paste it and press Enter — **it won't
-appear on screen as you type**, which is intentional, so it isn't left behind in
-your terminal history.
+It will ask for a submission token:
+
+- **Don't have one?** Press Enter. It registers one for you, asks what to call
+  it, and writes it into your agent's configuration. Nothing else to do.
+- **Been sent one?** Paste it. It **won't appear on screen as you type**, which
+  is intentional, so it isn't left in your terminal history.
+
+The token it registers is shown once. Keep a copy if you ever want to reinstall
+without registering again — but nothing breaks if you don't, you just register
+another.
 
 There is nothing to configure beyond that. Surveys go to
 `survey.agentbenchmark.dev`; the tool has no other destination, so there is no
