@@ -28,7 +28,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
-from .. import client, workflow as workflow_mod
+from .. import client, config, workflow as workflow_mod
 from ..timeutil import iso
 from . import dialects
 
@@ -438,8 +438,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  grade            {f['agent_output_grade']} ({grade.get('grader')})")
     for w in submitted.get("warnings") or []:
         print(f"  warning: {w}")
-    print(f"\n  ami-survey/bin/ami-report {submitted['run_id']}")
-    print(f"  ami-survey/bin/ami-compare \"{workflow.workflow_name}\"")
+    # This module ships in both halves. `ami-report` reads responses from a
+    # local store, which a published client does not have - naming it there
+    # would point a tester at a command they cannot run, which is the mistake
+    # this file was already making with `ami-compare`.
+    print()
+    if config.SERVER_HALF_PRESENT:
+        print(f"  ami-survey/bin/ami-report {submitted['run_id']}")
+    for name, link in (submitted.get("saved") or {}).items():
+        print(f"  {name}: {link}")
     return 0
 
 
