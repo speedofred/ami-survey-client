@@ -25,13 +25,13 @@ template. Two natural stages, so the Agent Effort Profile has something to split
 Start each run from a clean slate:
 
 ```bash
-ami-survey/bin/ami-demo support-ticket-triage
+ami-survey/bin/ami-workflow show support-ticket-triage
 ```
 
 That clears the demo's `output/`, drops any half-finished survey state left by an
 interrupted run, prunes unsubmitted drafts, and prints both messages to send —
 the workflow prompt and the follow-up that closes the measurement window.
-Submitted responses are never touched; they are the benchmark. `ami-demo` with no
+Submitted responses are never touched; they are the benchmark. `ami-workflow list` shows every
 argument lists the demos and how many surveys each already has.
 
 Then:
@@ -73,17 +73,18 @@ user). Three separate a careful agent from a fast one:
 
 ### Comparing runs
 
-One survey is a measurement. Several of the same workflow are a benchmark:
+One survey is a measurement. Several of the same workflow are a benchmark.
 
-```bash
-ami-survey/bin/ami-compare "Support Ticket Triage"
-```
+Run the same prompt more than once, or with a different model, prompt phrasing,
+or with and without stage markers. They group automatically, because every run
+takes its `workflow_name` from the same `workflow.json`.
 
-Run the same prompt more than once, or with a different model, prompt phrasing, or
-with and without stage markers, then compare cost, speed and grade together. The
-per-stage breakdown shows where the tokens actually went.
+Comparison happens on the survey service, which is where the responses land —
+the dashboard tabulates them by workflow, with cost, speed, grade and the
+per-stage breakdown of where the tokens went. Nothing is stored on your machine
+to compare locally.
 
-Reset between runs with `ami-survey/bin/ami-demo <name>`. Survey responses
+Reset between runs with `ami-survey/bin/ami-workflow show <name>`. Survey responses
 accumulate in `ami-survey/data/responses/` and are meant to.
 
 ### Running it in Codex
@@ -96,7 +97,7 @@ ami-survey/scripts/install.sh --codex     # symlinks the skill into ~/.codex/ski
 
 then add the printed `[mcp_servers.ami-survey]` block to `~/.codex/config.toml`
 and restart Codex. After that the flow is identical to Claude Code — reset with
-`ami-demo`, paste the prompt, then send *"Take the AMI survey regarding the
+`ami-workflow show`, paste the prompt, then send *"Take the AMI survey regarding the
 support ticket triage workflow"* as a separate second message. The survey works
 out that it is in Codex, reads that session's rollout for token usage, and prices
 the model it actually ran on. Neither you nor the agent supplies anything else.
@@ -118,8 +119,8 @@ ami-survey/bin/ami-run support-ticket-triage --provider gemini    --model gemini
 
 The runner drives an agent loop over `read_file` / `write_file` / `list_files` /
 `mark_stage`, records the usage block of every real response, and submits the
-survey — so a GPT run, a Gemini run and a Claude Code run land in the same
-`ami-compare` table. Because all of them read `workflow.json` for the workflow
+survey — so a GPT run, a Gemini run and a Claude Code run land beside each other
+in the same benchmark. Because all of them read `workflow.json` for the workflow
 name, they group together automatically.
 
 ```bash

@@ -428,13 +428,15 @@ def extract_calls(
                 "tool_calls": tool_calls,
                 "has_text": has_text,
                 "has_thinking": reasoning > 0,
+                # Promoted out of `evidence`: this is a measurement the provider
+                # reported, not a note about where the measurement came from.
+                "reasoning_output_tokens": reasoning,
                 "is_sidechain": False,
                 "source": LABEL,
                 "evidence": {
                     "transcript_path": str(rollout),
                     "session_id": meta.get("session_id"),
                     "token_count_index": i,
-                    "reasoning_output_tokens": reasoning,
                 },
             }
         )

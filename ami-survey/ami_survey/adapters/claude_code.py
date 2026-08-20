@@ -376,6 +376,11 @@ def extract_calls(
                 "tool_calls": tool_calls,
                 "has_text": has_text,
                 "has_thinking": has_thinking,
+                # Anthropic's Messages API folds thinking into output_tokens and
+                # reports no separate figure, so there is no number to record.
+                # Left absent rather than set to 0: a zero here would read as
+                # "this model did no thinking", which the transcript disproves.
+                "reasoning_output_tokens": None,
                 "is_sidechain": bool(first.get("isSidechain")),
                 "service_tier": usage.get("service_tier"),
                 "source": "claude_code_transcript",

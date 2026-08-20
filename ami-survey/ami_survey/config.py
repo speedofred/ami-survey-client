@@ -36,6 +36,12 @@ PRICING_OVERRIDES_FILE = CONFIG_DIR / "pricing_overrides.json"
 # a published client submits here and nowhere else.
 SURVEY_SERVICE_URL = "https://survey.agentbenchmark.dev"
 
+#: The address this server is reachable at from outside, used to turn the links
+#: in a submission into ones a human can click. Not derived from the request's
+#: Host header: that is set by the caller, and a link is exactly the thing not to
+#: build out of caller-controlled input. A fork on another domain sets this.
+PUBLIC_URL = os.environ.get("AMI_PUBLIC_URL", SURVEY_SERVICE_URL).rstrip("/")
+
 # The server half - the API, the field definitions, the scoring - ships only in
 # the development checkout. Its presence is what separates "this machine can run
 # a survey" from "this machine can take one", and it is the single switch behind
@@ -118,13 +124,29 @@ TRUSTED_PROXY = os.environ.get("AMI_TRUSTED_PROXY", "")
 
 # New tokens one address may mint per day, and a global ceiling that acts as a
 # circuit breaker if something automated finds the endpoint.
-RATE_TOKENS_PER_IP_PER_DAY = int(os.environ.get("AMI_RATE_TOKENS_PER_IP_PER_DAY", "3"))
+RATE_TOKENS_PER_IP_PER_DAY = int(os.environ.get("AMI_RATE_TOKENS_PER_IP_PER_DAY", "15"))
 RATE_TOKENS_PER_DAY = int(os.environ.get("AMI_RATE_TOKENS_PER_DAY", "50"))
 
 # Lifetime submissions allowed on a token nobody vetted. Reaching it is not a
 # punishment - it is the point at which a human should look at what arrived and
 # decide whether to raise it.
-MAX_SUBMISSIONS_SELF_ISSUED = int(os.environ.get("AMI_MAX_SUBMISSIONS_SELF_ISSUED", "20"))
+MAX_SUBMISSIONS_SELF_ISSUED = int(os.environ.get("AMI_MAX_SUBMISSIONS_SELF_ISSUED", "5"))
+
+# Serve MCP over HTTP at /mcp, so an agent can be given the survey's tools by a
+# user who adds this server, rather than being told to fetch a page and obey it.
+# Off by default like every other exposure switch. Everything submitted through
+# it is self-reported - a remote server cannot read anyone's session log.
+ALLOW_REMOTE_MCP = os.environ.get("AMI_ALLOW_REMOTE_MCP", "0") == "1"
+
+# Origins permitted on the MCP endpoint. MCP requires Origin validation against
+# DNS rebinding. claude.ai connects server-to-server and sends no Origin at all,
+# which is allowed; a *present* Origin outside this list is refused.
+MCP_ALLOWED_ORIGINS = tuple(
+    o.strip() for o in os.environ.get(
+        "AMI_MCP_ALLOWED_ORIGINS",
+        "https://claude.ai,https://www.claude.ai,https://claude.com",
+    ).split(",") if o.strip()
+)
 
 
 def ensure_dirs() -> None:

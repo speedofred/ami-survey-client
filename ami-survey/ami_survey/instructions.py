@@ -27,6 +27,9 @@ from pathlib import Path
 from . import config
 
 SKILL_FILE = config.PACKAGE_ROOT / "skills" / "ami-survey" / "SKILL.md"
+MAKE_MEASURABLE_FILE = (
+    config.PACKAGE_ROOT / "skills" / "ami-make-measurable" / "SKILL.md"
+)
 
 RUNTIMES = {
     "claude-code": (
@@ -85,6 +88,48 @@ def instructions(runtime: str = "mcp") -> str:
     # A plain replace, not str.format: the HTTP text contains literal {run_id}.
     preamble = RUNTIMES[runtime].replace("{adapters}", ", ".join(adapters.available()))
     return f"{MEASUREMENT_HEADER}> **How this runtime is measured.** {preamble}\n\n{body}"
+
+
+#: Served ahead of the make-measurable guidance to callers who reach the survey
+#: over the network. The skill was written for a runtime with an adapter; the one
+#: step it describes that such a caller does not have is the measuring one.
+REMOTE_PREPARATION_NOTE = (
+    "You are preparing a prompt for a run that will be surveyed over the network, "
+    "where there is no adapter to read a transcript. Two adjustments to the "
+    "guidance below:\n\n"
+    "- There is no `ami_collect_telemetry` on this surface and naming it in a "
+    "prompt sends whoever runs it looking for a tool that does not exist. Call "
+    "records are supplied with `ami_record_calls`, from usage the runtime reported "
+    "for each API call; where a runtime reports none, the run is submitted with "
+    "`allow_empty_telemetry` and stored as unmeasured.\n"
+    "- Stage markers are the exception and they are worth adding: a prompt that "
+    "says to call `ami_mark_stage` on entering each stage, with no run_id, gets "
+    "those markers timestamped by the server as they arrive - during the work, "
+    "not recalled afterwards. On a surface with no token counts this is the only "
+    "measurement available that nobody had to be believed for.\n"
+    "- **Do not put the survey steps in the prompt.** Naming the tools there is "
+    "what the stop line exists to prevent: the agent surveys itself in the turn "
+    "that did the work, folding the survey's own spend into the workflow it is "
+    "supposed to be measuring. The prompt ends at the stop line. The survey is the "
+    "human's next turn."
+)
+
+
+def make_measurable(remote: bool = False) -> str:
+    """How to adapt a prompt so the run it describes can be measured.
+
+    Served from the skill file rather than restated, because a second copy of
+    this guidance is a second thing to keep true.
+    """
+    body = _strip_frontmatter(MAKE_MEASURABLE_FILE.read_text())
+    if not remote:
+        return body
+    head, sep, rest = body.partition("\n")
+    # Every line, not just the first: a `>` on line one quotes line one.
+    note = "\n".join(
+        f"> {line}".rstrip() for line in REMOTE_PREPARATION_NOTE.splitlines()
+    )
+    return f"{head}{sep}\n{note}\n{rest}"
 
 
 # --------------------------------------------------------------------------- #

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Manage benchmark workflows: list, new, show. Running one is `ami-run`.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# No _ami-env.sh here, unlike the server-side wrappers. That file reads
+# /etc/ami-survey and ships only with the server half; sourcing it made this
+# command exit 1 on a published client, which is where it is most needed.
+export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+exec "${AMI_PYTHON:-python3}" -m ami_survey.workflow "$@"

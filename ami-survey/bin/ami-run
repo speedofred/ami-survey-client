@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Run a workflow on any provider (openai, anthropic, gemini) and survey it.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+exec "${AMI_PYTHON:-python3}" -m ami_survey.runners.agent "$@"

@@ -1,6 +1,6 @@
 # The workflow prompt
 
-Reset first — `ami-survey/bin/ami-demo support-ticket-triage` clears the output
+Reset first — `ami-survey/bin/ami-workflow show support-ticket-triage` clears the output
 and prints both messages below. Then paste everything between the lines into a
 **fresh** agent session opened at the repository root.
 
@@ -8,7 +8,7 @@ and prints both messages below. Then paste everything between the lines into a
 
 You are handling the inbound support queue for Northwind Cloud.
 
-Working in `demo-workflows/support-ticket-triage/`:
+Working in `workflows/support-ticket-triage/`:
 
 1. Read every ticket in `tickets/`.
 2. For each ticket, classify its severity against `severity_rubric.md`.
