@@ -25,7 +25,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import config
+from . import categories, config
 
 # workflows/ sits beside ami-survey/ in the project root. `--dir` overrides it
 # per invocation, which is what a workflow handed to you needs: an environment
@@ -81,6 +81,29 @@ class Workflow:
     @property
     def output_dir(self) -> Path:
         return self.path / "output"
+
+    def declaration(self) -> dict:
+        """What the workflow says about itself, validated against the vocabulary.
+
+        Read here rather than at submission so a bad category fails at
+        `--dry-run`, before a provider has been paid to run anything. A workflow
+        that declares nothing is valid; it is just not comparable against other
+        workflows, and the record says so.
+        """
+        units = self.meta.get("work_units") or {}
+        if not isinstance(units, dict):
+            raise WorkflowNotFound(
+                f"{self.name}: work_units must be an object with 'unit' and "
+                f'\'count\', e.g. {{"unit": "ticket", "count": 6}}; got {units!r}.'
+            )
+        try:
+            return categories.validate(
+                workflow_category=self.meta.get("workflow_category"),
+                work_unit=units.get("unit"),
+                work_unit_count=units.get("count"),
+            )
+        except categories.CategoryError as exc:
+            raise WorkflowNotFound(f"{self.name}/workflow.json: {exc}") from exc
 
     def prompt_blocks(self) -> list[str]:
         """Every `---`-delimited block in PROMPT.md, in order.
@@ -200,6 +223,19 @@ def _print_listing() -> int:
     for d in workflows:
         print(f"  {d.name}")
         print(f"      groups as: {d.workflow_name}")
+        try:
+            declared = d.declaration()
+        except WorkflowNotFound as exc:
+            print(f"      declares:  INVALID - {exc}")
+            continue
+        if declared["workflow_category"]:
+            units = (
+                f", {declared['work_unit_count']} x {declared['work_unit']}"
+                if declared["normalised"] else ", no work units declared"
+            )
+            print(f"      compares:  {declared['category_label']}{units}")
+        else:
+            print("      compares:  against other runs of this workflow only")
     print("\nReset one and get its prompts:  ami-workflow show <name>")
     return 0
 
@@ -285,6 +321,15 @@ def scaffold(name: str) -> Path:
             "<What comes in and what goes out, in one or two sentences. At least "
             "20 characters - it is stored with every run.>"
         ),
+        # Which workflows this one may be compared against, and what its cost
+        # gets divided by. Both optional, and both scaffolded rather than left
+        # out: a workflow with neither is only ever comparable against itself,
+        # and that is easier to fix now than after a series of runs.
+        "workflow_category": f"<one of: {', '.join(categories.category_ids())}>",
+        "work_units": {
+            "unit": "<the countable thing this handles: ticket, CV, document>",
+            "count": 0,
+        },
         "stages": [],
         "outputs": ["output/RESULT.md"],
     }, indent=2) + "\n", encoding="utf-8")
@@ -342,7 +387,8 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"Created {path}\n")
         for line in (
-            "  workflow.json   name every run groups by - keep it stable forever",
+            "  workflow.json   name every run groups by - keep it stable forever;",
+            "                  category and work units decide what it compares against",
             "  PROMPT.md       what the model receives; name the output path in it",
             "  standard.md     what a good output looks like; delete if the agent",
             "                  should not see it, and add an answer key instead",

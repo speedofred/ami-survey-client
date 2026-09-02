@@ -51,6 +51,9 @@ class Workspace:
     def __init__(self, root: Path):
         self.root = root.resolve()
         self.stage_markers: list[dict] = []
+        #: Start of the call whose tool calls are being dispatched. Set by the
+        #: run loop each turn; used to time stage markers - see mark_stage.
+        self.emitted_at: str | None = None
         # The prompt is written for an agent sitting in the project root, so it
         # says "workflows/<name>/tickets". The workspace root IS that
         # directory, so that prefix is stripped rather than 404ing the model.
@@ -97,18 +100,54 @@ class Workspace:
         target.write_text(content, encoding="utf-8")
         return f"wrote {len(content)} bytes to {target.relative_to(self.root)}"
 
-    def mark_stage(self, stage: str, note: str | None = None) -> str:
-        """Recorded with the time the model actually emitted it, then posted to the
-        survey once the run exists - the same contract as ami_mark_stage."""
-        self.stage_markers.append({"stage": stage, "marked_at": _now(), "note": note})
-        return f"stage marked: {stage}"
+    def mark_stage(self, stage: str, note: str | None = None,
+                   closes: bool = False) -> str:
+        """Recorded at the start of the call that emitted it.
+
+        Not `now()`, which is when this process got around to running the tool -
+        by then the call that asked for the marker has already ended, so it
+        falls outside the stage it just declared. A run whose very first act was
+        `mark_stage` therefore reported a phantom leading phase containing
+        exactly one call: the call that said which stage was starting.
+
+        The model decided to enter the stage during that call, so the stage
+        begins with it. Attribution is "the most recent marker at or before the
+        call's start", and a marker at exactly that instant lands inside.
+        """
+        self.stage_markers.append({
+            "stage": stage,
+            "marked_at": self.emitted_at or _now(),
+            "note": note,
+            "closes": bool(closes),
+        })
+        return f"stage {'closed' if closes else 'marked'}: {stage}"
+
+    def close_open_stage(self, at: str) -> bool:
+        """Bound the last declared stage, if anything is still open.
+
+        Deliberately not called when a run hits its step limit: there the work
+        did not finish, so there is no honest moment to close at, and an
+        open-ended final stage is the true description. The survey warns about
+        that case rather than tidying it away.
+        """
+        opening = [m for m in self.stage_markers if not m.get("closes")]
+        if not opening or (self.stage_markers and self.stage_markers[-1].get("closes")):
+            return False
+        self.stage_markers.append({
+            "stage": opening[-1]["stage"],
+            "marked_at": at,
+            "note": "closed by the runner when the model stopped calling tools",
+            "closes": True,
+        })
+        return True
 
     def dispatch(self, name: str, args: dict) -> str:
         fn = {
             "list_files": lambda: self.list_files(args.get("path", "")),
             "read_file": lambda: self.read_file(args.get("path", "")),
             "write_file": lambda: self.write_file(args.get("path", ""), args.get("content", "")),
-            "mark_stage": lambda: self.mark_stage(args.get("stage", ""), args.get("note")),
+            "mark_stage": lambda: self.mark_stage(
+                args.get("stage", ""), args.get("note"), bool(args.get("closes"))),
         }.get(name)
         if fn is None:
             return f"unknown tool: {name}"
@@ -158,6 +197,15 @@ def run_workflow(
             )
 
         if not turn.tool_calls:
+            # The model stopped, so the workflow's work ended before this call:
+            # this one is its closing summary, and it costs a full context
+            # re-send to produce fifty tokens of prose. Left unbounded the final
+            # declared stage swallows it - on a real gpt-4.1 run that was a third
+            # of the stage's tokens, making the last stage look like where the
+            # spend went. The runner knows exactly when the work stopped, so it
+            # closes the stage itself rather than relying on the model to
+            # remember a tool call on its way out.
+            workspace.close_open_stage(start)
             return {
                 "calls": calls,
                 "stage_markers": workspace.stage_markers,
@@ -167,6 +215,9 @@ def run_workflow(
                 "stopped_because": "the model finished without further tool calls",
             }
 
+        # Tools dispatched from this turn were decided during the call that just
+        # ended, so a stage marker among them belongs at that call's start.
+        workspace.emitted_at = start
         results = [workspace.dispatch(tc.name, tc.args) for tc in turn.tool_calls]
         dialect.record_tool_results(turn.tool_calls, results)
 
@@ -185,29 +236,130 @@ def run_workflow(
 # --------------------------------------------------------------------------- #
 
 GRADE_PROMPT = (
-    "You have just finished this task:\n\n{task}\n\nYour summary of what you "
-    "produced:\n\n{summary}\n\nGrade the OUTPUT you produced - the files, not your "
-    "effort and not whether the run felt smooth. Be willing to grade your own work "
-    "down.\n\nGrading scale:\n{scale}\n\nReply with JSON only, no prose and no code "
+    "You have just finished this task:\n\n{task}\n"
+    "{standard}"
+    "\nHere is the output you actually produced:\n\n{output}\n"
+    "\nYour own summary of the run, for context only:\n\n{summary}\n\n"
+    "Grade the OUTPUT above - what is in those files, not your effort and not "
+    "whether the run felt smooth. Check it against the task's stated requirements "
+    "clause by clause, and be willing to grade your own work down.\n\n"
+    "Grading scale:\n{scale}\n\nReply with JSON only, no prose and no code "
     'fence: {{"grade": "<code from the scale>", "justification": "<at least 40 '
-    'characters, measured against the task\'s stated requirements>", "evidence": '
+    'characters, citing what the output did and did not do>", "evidence": '
     '["<file path>", ...]}}'
 )
+
+#: Total characters of produced output shown to the grader. Generous enough for
+#: a real deliverable, bounded so a workflow that wrote a large file cannot push
+#: the grading call past the model's context - which would fail the run at the
+#: last step, after the measured work was already paid for.
+MAX_GRADE_OUTPUT_CHARS = 60_000
+MAX_GRADE_FILE_CHARS = 20_000
+#: A standard the agent was told to follow is part of the question being asked,
+#: so the grader sees it too.
+MAX_STANDARD_CHARS = 8_000
+
+
+def _readable_outputs(workflow: workflow_mod.Workflow) -> list[tuple[str, str]]:
+    """Every file the workflow declared as output, with its contents.
+
+    Declared paths may be files or directories - the shipped workflow writes one
+    reply per ticket into `output/replies/` - so a directory contributes each
+    file under it, sorted, so two runs of the same workflow are shown in the
+    same order.
+    """
+    found: list[tuple[str, str]] = []
+    declared = workflow.meta.get("outputs") or []
+    # Resolved once and used for both the containment check and the relative
+    # names below. Comparing a resolved path against an unresolved base is the
+    # classic way to get this wrong: on macOS /var is a symlink to /private/var,
+    # so every path looks like it escaped.
+    root = workflow.path.resolve()
+    for rel in declared:
+        target = (root / rel).resolve()
+        # Never read outside the workflow directory, whatever workflow.json says:
+        # a handed-over workflow is someone else's file.
+        if root not in target.parents and target != root:
+            continue
+        if target.is_dir():
+            paths = sorted(q for q in target.rglob("*") if q.is_file())
+        elif target.is_file():
+            paths = [target]
+        else:
+            continue
+        for path in paths:
+            if path.name.startswith("."):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            name = str(path.relative_to(root))
+            if len(text) > MAX_GRADE_FILE_CHARS:
+                text = (text[:MAX_GRADE_FILE_CHARS]
+                        + f"\n\n[...truncated at {MAX_GRADE_FILE_CHARS:,} characters]")
+            found.append((name, text))
+    return found
+
+
+def _rendered_outputs(workflow: workflow_mod.Workflow) -> str:
+    """The produced files as the grader sees them, or a plain statement of none.
+
+    An absent output is not an ungradeable run - it is the worst possible one,
+    and saying so is what stops a model returning NOT_GRADED because it was
+    never shown anything.
+    """
+    files = _readable_outputs(workflow)
+    if not files:
+        return (
+            "NOTHING. None of the files this workflow declares as its output "
+            "exist on disk. The workflow produced no output at all - grade it on "
+            "that, at the bottom of the scale."
+        )
+    blocks, budget = [], MAX_GRADE_OUTPUT_CHARS
+    for name, text in files:
+        if budget <= 0:
+            blocks.append(f"[{len(files) - len(blocks)} further file(s) not shown]")
+            break
+        body = text[:budget]
+        budget -= len(body)
+        blocks.append(f"--- {name} ---\n{body}")
+    return "\n\n".join(blocks)
 
 
 def self_grade(dialect: dialects.Dialect, model: str, workflow: workflow_mod.Workflow, summary: str) -> dict:
     """One extra call, outside the measured window, mirroring the self-grade a
-    Claude Code agent gives when it takes the survey."""
+    Claude Code agent gives when it takes the survey.
+
+    The grader is shown the files that were written, not only the agent's
+    account of writing them. It used to get the summary alone, which meant every
+    automatic grade was the model's recollection of its own output - the one
+    thing this project refuses to accept anywhere else, applied to the one field
+    nothing can check. A small model caught it first, returning NOT_GRADED with
+    "no actual output files content was provided in the prompt to assess"; the
+    larger ones graded themselves Excellent on work they had not looked at.
+    """
     scale = client.get("/survey/grading-scale")
     rendered = "\n".join(
         f"  {g['code']}: {g.get('label')} - {g.get('definition', '')}"
         for g in scale.get("grades", [])
     )
+    standard_file = workflow.path / "standard.md"
+    standard = ""
+    if standard_file.exists():
+        standard = ("\nThe output was required to follow this standard:\n\n"
+                    + standard_file.read_text(encoding="utf-8",
+                                              errors="replace")[:MAX_STANDARD_CHARS]
+                    + "\n")
     reply = dialect.ask_once(
         model,
         "You grade your own work honestly and reply with JSON only.",
         GRADE_PROMPT.format(
-            task=workflow.prompt(), summary=summary or "(work complete)", scale=rendered
+            task=workflow.prompt(),
+            standard=standard,
+            output=_rendered_outputs(workflow),
+            summary=summary or "(work complete)",
+            scale=rendered,
         ),
     )
     text = reply.strip()
@@ -238,6 +390,11 @@ def survey_run(workflow: workflow_mod.Workflow, result: dict, dialect: dialects.
         {
             "workflow_name": workflow.workflow_name,
             "workflow_description": workflow.workflow_description,
+            # Validated when the workflow was loaded, so a bad category has
+            # already stopped the run before any provider was paid.
+            **{k: v for k, v in workflow.declaration().items()
+               if k in ("workflow_category", "work_unit", "work_unit_count")
+               and v is not None},
             "workflow_start_time": result["started"],
             "workflow_end_time": result["ended"],
             "workflow_start_time_basis": "first request the runner sent to the model",
@@ -257,8 +414,12 @@ def survey_run(workflow: workflow_mod.Workflow, result: dict, dialect: dialects.
     for marker in result["stage_markers"]:
         client.post(
             f"/runs/{run_id}/stages",
+            # `closes` travels too. Without it the closing marker the runner
+            # just built arrives as another opening one, the final stage stays
+            # unbounded, and it goes on absorbing the summary turn - the exact
+            # defect the closing marker exists to fix, undone in transit.
             {"stage": marker["stage"], "marked_at": marker["marked_at"],
-             "note": marker.get("note")},
+             "note": marker.get("note"), "closes": bool(marker.get("closes"))},
         )
 
     client.post(
@@ -281,6 +442,91 @@ def survey_run(workflow: workflow_mod.Workflow, result: dict, dialect: dialects.
             "grader": grade.get("grader", "self"),
         },
     )
+
+
+FINDINGS_PROMPT = (
+    "You have just run this workflow and it has been surveyed. Here is its "
+    "scorecard.\n\nWORKFLOW: {workflow}\nMODEL: {model}\n\n"
+    "MEASURED RESULT:\n{summary}\n\n"
+    "WHERE THE EFFORT WENT:\n{stages}\n\n"
+    "WHAT THE SURVEY ALREADY FOUND:\n{findings}\n\n"
+    "The survey writes the sections that follow from the numbers. Write the "
+    "ones that do not - a reading of the work, grounded only in what is above "
+    "and in the output you produced.\n\n{briefs}\n\n"
+    "Rules. Cite the run's own figures rather than restating the scores. Do not "
+    "invent industry context you were not given - say plainly that none was "
+    "supplied if that is the case. Each section is one short paragraph, at "
+    "least 40 characters and at most 1000.\n\n"
+    "Reply with JSON only, no prose and no code fence:\n"
+    '{{"workflow_opportunity": "...", "workflow_next_step": "...", '
+    '"industry_opportunity": "...", "industry_next_step": "..."}}'
+)
+
+
+def write_findings(dialect: dialects.Dialect, model: str, workflow: workflow_mod.Workflow,
+                   run_id: str, submitted: dict) -> dict:
+    """Write the scorecard's judgement sections, immediately after submitting.
+
+    One extra call, outside the measured window, exactly like the self-grade -
+    and for the same reason it exists at all: the scorecard has four sections no
+    arithmetic produces, and the agent that just did the work is the one thing
+    in the loop that has both a model and the context to write them.
+
+    Left for later, they do not get written. The run is finished, the terminal
+    has moved on, and a scorecard with four empty slots is what anybody who
+    opens the link finds. So it happens here, while the workflow is still the
+    subject of the conversation.
+
+    Never fatal. The survey is already submitted and its measurements are the
+    part that matters; a failed narrative call costs a paragraph, not a run.
+    """
+    card = submitted.get("scorecard") or {}
+    brief = card.get("narration_brief") or {}
+    waiting = brief.get("sections_awaiting_you") or []
+    if not waiting:
+        return {"written": [], "why": "nothing was waiting to be written"}
+
+    pillars = card.get("pillars") or {}
+    summary = "\n".join(
+        f"  {name}: {p.get('level')} {p.get('score')} - {p.get('basis')}"
+        for name, p in pillars.items() if p.get("basis")
+    )
+    stages = "\n".join(
+        f"  {row.get('workflow_stage') or ('outside any declared stage: ' + str(row.get('observed_execution_phase')))}"
+        f": {row.get('stage_agent_call_count')} call(s), "
+        f"{row.get('stage_total_tokens')} tokens, {row.get('stage_agent_runtime')}s"
+        for row in submitted.get("agent_effort_profile") or []
+    )
+    found = "\n".join(f"  - {f['fact']}" for f in card.get("findings") or [])
+    briefs = "\n\n".join(f"{s['title']} ({s['section']}):\n  {s['brief']}" for s in waiting)
+
+    reply = dialect.ask_once(
+        model,
+        "You read your own work honestly and reply with JSON only.",
+        FINDINGS_PROMPT.format(
+            workflow=workflow.workflow_name, model=model,
+            summary=summary or "(no pillar could be scored)",
+            stages=stages or "(no stage evidence)",
+            findings=found or "(no findings)", briefs=briefs,
+        ),
+    )
+    text = reply.strip()
+    if text.startswith("```"):
+        text = text.strip("`").split("\n", 1)[-1].rsplit("```", 1)[0]
+    try:
+        sections = json.loads(text[text.find("{"): text.rfind("}") + 1])
+    except (json.JSONDecodeError, ValueError):
+        return {"written": [], "why": f"the findings call did not return JSON: {reply[:120]!r}"}
+
+    wanted = {s["section"] for s in waiting}
+    payload = {k: v for k, v in sections.items()
+               if k in wanted and isinstance(v, str) and v.strip()}
+    if not payload:
+        return {"written": [], "why": "the findings call returned no usable section"}
+    try:
+        return client.post(f"/runs/{run_id}/narrative", payload)
+    except client.ApiCallFailed as exc:
+        return {"written": [], "why": f"the survey refused the findings: {exc}"}
 
 
 # --------------------------------------------------------------------------- #
@@ -324,6 +570,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="required when --grade is a grade code")
     parser.add_argument("--no-reset", action="store_true",
                         help="do not clear the workflow's output before running")
+    parser.add_argument("--findings", default="auto", choices=("auto", "skip"),
+                        help="write the scorecard's judgement sections after "
+                             "submitting (default: auto). One extra call, outside "
+                             "the measured window, like the self-grade.")
     parser.add_argument("--dry-run", action="store_true",
                         help="show what would run, without calling the model")
     return parser
@@ -336,6 +586,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         workflow = workflow_mod.find(args.workflow)
         prompt = workflow.prompt()
+        # Read here, before a provider is contacted: the declaration is part of
+        # the benchmark, and finding out it is wrong at submission means the run
+        # has already been paid for.
+        declared = workflow.declaration()
         dialect_cls = dialects.get(args.provider)
     except (workflow_mod.WorkflowNotFound, dialects.DialectError) as exc:
         print(str(exc), file=sys.stderr)
@@ -348,6 +602,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         print(f"workflow:       {workflow.name} ({workflow.path})")
         print(f"groups as:  {workflow.workflow_name}")
+        print(f"compares:   {declared['category_label'] or 'this workflow only - no category declared'}"
+              + (f" ({declared['work_unit_count']} x {declared['work_unit']})"
+                 if declared["normalised"] else " - no work units declared"))
         print(f"provider:   {dialect_cls.name}")
         print(f"model:      {args.model or '(none given)'}")
         print(f"endpoint:   {base_url}")
@@ -357,6 +614,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"tools:      {', '.join(t['name'] for t in dialects.TOOLS)}")
         print(f"max steps:  {args.max_steps}")
         print(f"grading:    {args.grade}")
+        print(f"findings:   {args.findings}")
         # Say what is *not* being sent, too. PROMPT.md legitimately holds more
         # than one `---` block - the shipped workflow keeps its survey request in a
         # later one - but only the first is ever run, and a workflow handed over
@@ -436,6 +694,24 @@ def main(argv: list[str] | None = None) -> int:
     cost = d.get("estimated_cost_usd_cache_aware")
     print(f"  est. cost        {'$%.4f' % cost if cost is not None else 'unavailable'}")
     print(f"  grade            {f['agent_output_grade']} ({grade.get('grader')})")
+
+    # Written here rather than left for later. The scorecard has four sections
+    # no arithmetic produces, and the agent that just did the work is the one
+    # thing in the loop with both a model and the context to write them - in a
+    # minute the run is over and nobody comes back to it.
+    if args.findings == "auto":
+        try:
+            wrote = write_findings(dialect, args.model, workflow,
+                                   submitted["run_id"], submitted)
+        except (RunnerError, client.ApiCallFailed, client.ApiUnavailable) as exc:
+            wrote = {"written": [], "why": str(exc)}
+        if wrote.get("written"):
+            print(f"  findings         {len(wrote['written'])} section(s) written")
+        else:
+            # Said out loud rather than swallowed: an empty scorecard section is
+            # invisible until somebody opens the page and wonders.
+            print(f"  findings         not written - {wrote.get('why', 'unknown')}")
+
     for w in submitted.get("warnings") or []:
         print(f"  warning: {w}")
     # This module ships in both halves. `ami-report` reads responses from a

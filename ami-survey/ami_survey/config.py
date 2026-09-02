@@ -30,6 +30,9 @@ RESPONSES_DIR = DATA_DIR / "responses"  # submitted survey responses (immutable)
 CACHE_DIR = DATA_DIR / "cache"  # LiteLLM price map cache
 
 GRADING_SCALE_FILE = CONFIG_DIR / "grading_scale.json"
+WORKFLOW_CATEGORIES_FILE = CONFIG_DIR / "workflow_categories.json"
+SCORING_REFERENCE_FILE = CONFIG_DIR / "scoring_reference.json"
+BENCHMARK_POLICY_FILE = CONFIG_DIR / "benchmark_policy.json"
 PRICING_OVERRIDES_FILE = CONFIG_DIR / "pricing_overrides.json"
 
 # The hosted survey. Deliberately a constant and not an environment variable:
@@ -144,7 +147,8 @@ ALLOW_REMOTE_MCP = os.environ.get("AMI_ALLOW_REMOTE_MCP", "0") == "1"
 MCP_ALLOWED_ORIGINS = tuple(
     o.strip() for o in os.environ.get(
         "AMI_MCP_ALLOWED_ORIGINS",
-        "https://claude.ai,https://www.claude.ai,https://claude.com",
+        "https://claude.ai,https://www.claude.ai,https://claude.com,"
+        "https://chatgpt.com,https://chat.openai.com",
     ).split(",") if o.strip()
 )
 

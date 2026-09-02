@@ -88,6 +88,13 @@ TOOLS = [
             "properties": {
                 "stage": {"type": "string", "description": "Name of the stage being entered."},
                 "note": {"type": "string", "description": "Optional detail."},
+                "closes": {
+                    "type": "boolean",
+                    "description": "True when this ends declared work rather than "
+                                   "starting a stage. Without it the final stage runs "
+                                   "to the end of the run and absorbs everything after "
+                                   "the workflow finished.",
+                },
             },
             "required": ["stage"],
         },

@@ -218,6 +218,19 @@ def t_get_grading_scale(_args: dict) -> dict:
     return client.get("/survey/grading-scale")
 
 
+def t_get_workflow_categories(_args: dict) -> dict:
+    return client.get("/survey/workflow-categories")
+
+
+def t_get_scorecard(args: dict) -> dict:
+    return client.get(f"/runs/{_resolve_run(args)}/scorecard")
+
+
+def t_write_findings(args: dict) -> dict:
+    body = {k: v for k, v in args.items() if k not in ("run_id",)}
+    return client.post(f"/runs/{_resolve_run(args)}/narrative", body)
+
+
 def t_survey_begin(args: dict) -> dict:
     name = (args.get("workflow_name") or "").strip()
     desc = (args.get("workflow_description") or "").strip()
@@ -239,6 +252,9 @@ def t_survey_begin(args: dict) -> dict:
     payload = {
         "workflow_name": name,
         "workflow_description": desc,
+        "workflow_category": args.get("workflow_category"),
+        "work_unit": args.get("work_unit"),
+        "work_unit_count": args.get("work_unit_count"),
         "workflow_start_time": args.get("workflow_start_time") or window.get("start"),
         "workflow_end_time": args.get("workflow_end_time") or window.get("end"),
         "workflow_start_time_basis": (
@@ -419,7 +435,9 @@ def t_get_report(args: dict) -> str:
     run_id = args.get("run_id") or _current()
     if not run_id:
         return client.get("/responses/index.md")
-    return client.get(f"/runs/{run_id}/report")
+    # The .md form: /report now renders a page for a human to read, and an
+    # agent asking for the report wants the report.
+    return client.get(f"/runs/{run_id}/report.md")
 
 
 def t_list_surveys(_args: dict) -> dict:
@@ -452,6 +470,18 @@ TOOLS: list[dict] = [
                     "type": "string",
                     "description": "1-3 sentences: what the workflow was given and what "
                                    "business work it produced. Minimum 20 characters.",
+                },
+                "workflow_category": {
+                    "type": "string",
+                    "description": "Optional. The workflow's category, from ami_get_workflow_categories. Decides which other workflows this run is compared against; an undeclared workflow is only ever compared against itself. Take it from the workflow's own workflow.json where one exists - do not invent one.",
+                },
+                "work_unit": {
+                    "type": "string",
+                    "description": "Optional, but declare it together with work_unit_count. The countable thing this workflow handled: 'ticket', 'CV', 'support email'. It is what cost and duration get divided by, so a workflow that did more work is not penalised for costing more.",
+                },
+                "work_unit_count": {
+                    "type": "integer",
+                    "description": 'Optional, but declare it together with work_unit. How many work units this run actually handled - a whole number you can point at in the output, not an estimate.',
                 },
                 "workflow_start_time": {
                     "type": "string",
@@ -607,6 +637,47 @@ TOOLS: list[dict] = [
         ),
         "inputSchema": {"type": "object", "properties": {}},
         "handler": t_get_grading_scale,
+    },
+    {
+        "name": "ami_get_workflow_categories",
+        "description": (
+            'The workflow categories a run may declare itself into, and what each one covers. A category decides which other workflows this run is compared against, so read the list rather than inventing a label.'
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+        "handler": t_get_workflow_categories,
+    },
+    {
+        "name": "ami_get_scorecard",
+        "description": (
+            "The scorecard for a submitted run: the AMI Maturity Index, the Performance Score, the five pillars, and structured findings. Every number and finding is computed from the run's own data - the server calls no model. If a human wants this read back as prose, write it yourself from narration_brief.findings, following the instructions there."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "string",
+                            "description": "Defaults to the run you just submitted."},
+            },
+        },
+        "handler": t_get_scorecard,
+    },
+    {
+        "name": "ami_write_findings",
+        "description": (
+            "Write the judgement sections of a run's scorecard. The server computes every number and the three sections that follow from them; these four are readings of the work that no arithmetic produces, so they are yours to write. Call ami_get_scorecard first and use narration_brief.sections_awaiting_you - it carries the brief for each. Ground every sentence in the run's own evidence; do not invent industry context you were not given."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run_id": {'type': 'string', 'description': 'The submitted run.'},
+                "workflow_opportunity": {'type': 'string', 'description': 'The single biggest improvement available to this workflow. Name the stage.'},
+                "workflow_next_step": {'type': 'string', 'description': 'One concrete change, specific enough to act on this week.'},
+                "industry_opportunity": {'type': 'string', 'description': 'What this workflow being agent-run means commercially. Say so plainly if you were given no industry context.'},
+                "industry_next_step": {'type': 'string', 'description': 'One thing the business should decide or standardise.'},
+                "key_finding": {'type': 'string', 'description': 'Optional. Overrides the derived summary if you have read the output and know better than the arithmetic does.'},
+            },
+            "required": ["run_id"],
+        },
+        "handler": t_write_findings,
     },
     {
         "name": "ami_get_instructions",

@@ -1,6 +1,11 @@
 {
   "workflow_name": "Support Ticket Triage & Response",
   "workflow_description": "Six inbound support tickets are each classified against a written severity rubric (P1-P4) and routed to an owning team, then a customer reply is drafted for each against a six-element response template. Outputs: output/triage.json and one reply draft per ticket.",
+  "workflow_category": "classification-and-routing",
+  "work_units": {
+    "unit": "ticket",
+    "count": 6
+  },
   "stages": ["Classify Severity", "Draft Replies"],
   "outputs": ["output/triage.json", "output/replies"]
 }

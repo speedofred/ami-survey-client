@@ -240,7 +240,8 @@ Every classification must cite the rule from `rules.md` that it applied.
 ```
 
 The agent grades its own work at the end. Given something concrete to grade
-against, that judgement is worth reading. Given nothing, it will say "A".
+against, that judgement is worth reading. Given nothing, it will say
+"Excellent".
 
 #### Change 4: Pin the name (optional but recommended)
 

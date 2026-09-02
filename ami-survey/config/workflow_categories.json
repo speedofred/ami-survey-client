@@ -1,0 +1,55 @@
+{
+  "vocabulary_id": "ami-categories-v1",
+  "description": "The controlled vocabulary a workflow declares itself into. Declared, never inferred: guessing a category from the workflow name silently mis-files runs, and a mis-filed run is compared against work it never did. A workflow declares exactly one category - the category of the work its grade is mostly about - and an unrecognised id is rejected rather than stored.",
+  "cohort_note": "Category cohorts compare different workflows doing similar work, so cost and speed are only admitted once normalised per work unit. `other` never forms a cohort: it is the escape hatch for work that fits nothing here, which by definition has no peers.",
+  "categories": [
+    {
+      "id": "document-generation",
+      "label": "Document generation",
+      "definition": "Produces a substantial document from a brief and source material - a CV, a report, a proposal, a specification, a set of templates.",
+      "unit_hint": "document"
+    },
+    {
+      "id": "correspondence",
+      "label": "Correspondence",
+      "definition": "Drafts messages addressed to a specific counterparty - customer replies, outcome emails, follow-ups. Distinct from document generation because the audience is a person in a thread, not a reader of a deliverable.",
+      "unit_hint": "message"
+    },
+    {
+      "id": "classification-and-routing",
+      "label": "Classification and routing",
+      "definition": "Assigns incoming items to categories, severities, owners or queues against a stated rubric.",
+      "unit_hint": "item"
+    },
+    {
+      "id": "data-extraction",
+      "label": "Data extraction",
+      "definition": "Pulls structured data out of unstructured or semi-structured sources into a defined shape.",
+      "unit_hint": "record"
+    },
+    {
+      "id": "summarisation",
+      "label": "Summarisation",
+      "definition": "Condenses existing material without adding new claims - meeting notes, document digests, thread recaps.",
+      "unit_hint": "source"
+    },
+    {
+      "id": "research-and-analysis",
+      "label": "Research and analysis",
+      "definition": "Gathers and reasons over information to reach a conclusion or recommendation the inputs do not state directly.",
+      "unit_hint": "question"
+    },
+    {
+      "id": "code-generation",
+      "label": "Code generation",
+      "definition": "Writes, modifies or reviews source code, tests or configuration.",
+      "unit_hint": "change"
+    },
+    {
+      "id": "other",
+      "label": "Other",
+      "definition": "Work that fits none of the above. Runs here are scored and reported normally but never form a category cohort.",
+      "unit_hint": "item"
+    }
+  ]
+}

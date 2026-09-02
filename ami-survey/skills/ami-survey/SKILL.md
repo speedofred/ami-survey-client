@@ -125,7 +125,7 @@ ami_get_grading_scale()
 Read the rubric, then decide honestly. You are grading the workflow's **output**
 (the classification, the drafted email, the code, the report) - not your effort and
 not whether the run felt smooth. Be willing to grade your own work down; a survey
-where every agent grades itself "A" measures nothing.
+where every agent grades itself "Excellent" measures nothing.
 
 You need:
 - a grade code from the scale,
@@ -141,7 +141,7 @@ the workflow produced nothing reviewable, use `NOT_GRADED`.
 
 ```
 ami_submit_survey(
-  agent_output_grade: "B",
+  agent_output_grade: "Good",
   grade_justification: "Severity label matched the rubric's P2 definition; the draft
                         reply covered all three required next steps but omitted the
                         SLA window the template asks for.",
@@ -175,16 +175,37 @@ the tool output.
 
 ## What the survey collects
 
-Exactly the 28 fields of `Collection_Inventory.csv`, no more and no less:
+Exactly the 33 fields of `Collection_Inventory.csv`, no more and no less:
 
 | Source | Fields |
 |---|---|
-| Runtime telemetry | `input_tokens`, `output_tokens`, `total_api_request_count`, `agent_start_time`, `agent_end_time`, `total_agent_runtime` |
+| Runtime telemetry | `input_tokens`, `output_tokens`, `reasoning_tokens`, `total_api_request_count`, `agent_start_time`, `agent_end_time`, `total_agent_runtime` |
 | LiteLLM price map | `input_price_per_1m`, `output_price_per_1m` |
 | Runtime metadata | `model_name`, `model_provider`, `platform` |
 | Survey clock / markers | `workflow_start_time`, `workflow_end_time` |
 | You | `workflow_name`, `workflow_description`, `agent_output_grade` |
-| Computed per stage | `workflow_stage`, `workflow_stage_confidence`, `observed_execution_phase`, `observed_execution_phase_confidence`, `phase_basis`, `stage_agent_call_count`, `stage_input_tokens`, `stage_output_tokens`, `stage_total_tokens`, `stage_start_time`, `stage_end_time`, `stage_agent_runtime` |
+| Declared by the workflow | `workflow_category`, `work_unit`, `work_unit_count` - from `workflow.json`, never invented |
+| Computed per stage | `workflow_stage`, `workflow_stage_confidence`, `observed_execution_phase`, `observed_execution_phase_confidence`, `phase_basis`, `stage_agent_call_count`, `stage_input_tokens`, `stage_output_tokens`, `stage_reasoning_tokens`, `stage_total_tokens`, `stage_start_time`, `stage_end_time`, `stage_agent_runtime` |
+
+## After submitting: write the findings
+
+The submit response carries a `scorecard` - an AMI Maturity Index, a Performance
+Score, five pillars, and structured findings. Every number in it is computed
+from the run's own data, because **the server runs no model**.
+
+Four sections of that scorecard it therefore cannot write, and they are yours:
+`workflow_opportunity`, `workflow_next_step`, `industry_opportunity`,
+`industry_next_step`. Call **`ami_write_findings` immediately after submitting**,
+while you still have the workflow in context. `narration_brief.sections_awaiting_you`
+carries the brief for each.
+
+Do it then, not later. The run is over in a minute and nobody comes back to it;
+what gets left is a scorecard with four empty slots, on a page somebody is about
+to open.
+
+Ground every sentence in the run's own figures. If you were given no industry
+context, say so plainly rather than inventing one - an invented paragraph is
+worse than an empty slot, because it looks like a finding.
 
 ## Failure modes to avoid
 
