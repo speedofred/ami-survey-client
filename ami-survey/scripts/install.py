@@ -24,6 +24,7 @@ import argparse
 import getpass
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -175,6 +176,39 @@ def register(scope: str, label: str = "") -> str:
     return token
 
 
+#: Where a previous run of this installer put a token. Claude Code's config is
+#: written by us; Codex's is printed for the operator to paste, so it may or may
+#: not be there. Both are read, because a token belongs to the person, not to
+#: the runtime that happens to be sending it.
+def _token_sources(project_root: Path) -> list[tuple[str, Path]]:
+    home = Path.home()
+    return [
+        ("~/.claude.json", home / ".claude.json"),
+        ("~/.codex/config.toml", home / ".codex" / "config.toml"),
+        (".mcp.json", project_root / ".mcp.json"),
+    ]
+
+
+def _existing_token(project_root: Path) -> tuple[str, str]:
+    """A token this machine already holds, and where it was found.
+
+    Read with a regex rather than a parser on purpose: one of these files is
+    TOML, `tomllib` only exists from 3.11, and this project supports 3.9. A
+    parser is the right tool for reading a config; this is looking for one
+    string in a file we wrote, and failing to find it costs nothing but a
+    prompt the operator was going to see anyway.
+    """
+    pattern = re.compile(r'AMI_API_TOKEN"?\s*[:=]\s*"([^"\s]+)"')
+    for label, path in _token_sources(project_root):
+        try:
+            found = pattern.search(path.read_text(errors="replace"))
+        except OSError:
+            continue
+        if found:
+            return found.group(1), label
+    return "", ""
+
+
 def install(scope: str, api_url: str, api_token: str) -> int:
     if sys.version_info < (3, 9):
         print(f"This needs Python 3.9 or newer. Running under {sys.version.split()[0]}.",
@@ -285,8 +319,22 @@ def main(argv: list[str] | None = None) -> int:
 
     scope = args.scope or "project"
     token = args.api_token
+    held, where = ("", "")
+    if api_url and not token and not args.register:
+        # Installing for a second runtime should not mint a second identity.
+        # The token is shown once and stored nowhere the operator can easily
+        # find, so "paste it if you have one" was a question most people could
+        # not answer - and pressing Enter, as the site tells them to, registered
+        # another. Two tokens from one machine means two submission ceilings and
+        # runs that do not group by the person who made them.
+        held, where = _existing_token(ROOT.parent)
+
     if api_url and not token and args.register:
         token = register(scope, args.label)
+    elif api_url and not token and held:
+        token = held
+        print(f"\nReusing the submission token already in {where}.")
+        print("Pass --register for a second one, or --api-token to use another.")
     elif api_url and not token:
         # The whole explanation goes inside the getpass prompt on purpose.
         # getpass writes to the terminal directly while print goes to stdout, so
