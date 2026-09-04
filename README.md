@@ -32,7 +32,6 @@ confidently. This reads the log instead.
 | `ami_survey/mcp_server.py` | the `ami_*` tools your agent calls |
 | `ami_survey/client.py` | talks to the survey service |
 | `skills/` | the procedure, in the skill format Claude Code and Codex both read |
-| `ami_survey/runners/` | drives a workflow against a provider's API, with your own key |
 | `scripts/install.py` | wires the above into your agent |
 | `workflows/` | a sample workflow to practise on |
 | `bin/` | the commands below |
@@ -63,47 +62,11 @@ In `ami-survey/bin/`. Each is a wrapper that sets `PYTHONPATH` and runs a module
 so they work from a clone with nothing installed. `--help` on any of them prints
 its full flags.
 
-### Benchmarking a workflow across models
-
-**`ami-run`** runs a workflow against a provider's API — your key, your account —
-reads the `usage` block off every real response, and submits the survey. One
-agent loop over four sandboxed file tools, identical for every provider, which is
-what makes the numbers comparable between them.
-
-```bash
-export OPENAI_API_KEY=...
-
-# see what would run, without calling anything
-ami-survey/bin/ami-run support-ticket-triage --provider openai --model gpt-4.1 --dry-run
-
-# the real thing
-ami-survey/bin/ami-run support-ticket-triage --provider openai    --model gpt-4.1
-ami-survey/bin/ami-run support-ticket-triage --provider anthropic --model claude-sonnet-4-5
-ami-survey/bin/ami-run support-ticket-triage --provider gemini    --model gemini-2.5-pro
-
-# a workflow someone sent you, kept wherever you put it
-ami-survey/bin/ami-run their-workflow --dir ~/Downloads/handover \
-    --provider openai --model gpt-4.1
-
-# any OpenAI-compatible endpoint, including a local model
-ami-survey/bin/ami-run support-ticket-triage --provider openai --model llama3.3 \
-    --base-url http://localhost:11434/v1 --api-key-env OLLAMA_API_KEY
-```
-
-Always `--dry-run` first with a workflow you did not write. It resolves the
-prompt, shows the sandboxed workspace, names any `---` blocks it is *not*
-sending, and calls nothing.
-
-Worth knowing about `--grade`: the default is `auto`, which has the model grade
-its own output. That is the one field in the survey nothing can check, so for
-anything you intend to stand behind, use `--grade skip` and submit your own
-grade afterwards with `--no-reset`.
-
 ### Managing workflows
 
 **`ami-workflow`** lists, scaffolds and prepares them. It never runs anything —
-that is `ami-run`, and they are separate commands so that printing a prompt and
-spending money on an API are not one word apart.
+your agent does that, under the AMI survey tools. They are separate commands so
+that preparing a prompt and running it are not one word apart.
 
 ```bash
 ami-survey/bin/ami-workflow list

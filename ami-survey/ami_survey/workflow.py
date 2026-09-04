@@ -4,9 +4,9 @@ A benchmark is only comparable if every run starts from the same state, so this
 module knows two things: where the workflows live, and what has to be true before
 a run begins.
 
-`ami-workflow` manages workflows; `ami-run` is the only thing that runs one. The
-split is deliberate - preparing a workflow to paste into Claude Code and spending
-money on a provider's API should not be one word apart.
+`ami-workflow` manages workflows; an agent runs one. The split is deliberate -
+preparing a workflow and running it are different acts, and the command that
+resets a directory should not also be the command that spends anything.
 
     ami-workflow list                  every workflow found
     ami-workflow new <name>            scaffold a directory
@@ -244,7 +244,7 @@ SAFE_NAME = re.compile(r"\A[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 
 #: The `---` rules are load-bearing: `Workflow.prompt()` takes the text between the
 #: first pair as the prompt, so everything outside them is notes for whoever
-#: opens the file. A scaffold without them produces a workflow `ami-run` refuses.
+#: opens the file. A scaffold without them produces a workflow with no prompt.
 PROMPT_TEMPLATE = """\
 # The workflow prompt
 
@@ -288,7 +288,7 @@ always a B.
 
 
 def scaffold(name: str) -> Path:
-    """Create the directory `ami-run` needs, and refuse to touch an existing one.
+    """Create the standard workflow directory, refusing to touch an existing one.
 
     The layout is fixed, so this is deterministic rather than a judgement call -
     which is why it is a command and not a skill. Deciding the stages, the
@@ -311,7 +311,7 @@ def scaffold(name: str) -> Path:
         PROMPT_TEMPLATE.replace("{name}", name), encoding="utf-8")
     (path / "standard.md").write_text(
         STANDARD_TEMPLATE.replace("{name}", name), encoding="utf-8")
-    # Keeps the directory in git, and ami-run clears the contents rather than the
+    # Keeps the directory in git; a reset clears the contents rather than the
     # directory itself.
     (path / "output" / ".gitkeep").write_text("", encoding="utf-8")
     json_path = path / "workflow.json"
@@ -340,8 +340,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="ami-workflow",
         description=(
-            "Manage benchmark workflows. Running one against a provider is "
-            "`ami-run`; this lists, scaffolds and prepares them."
+            "Manage benchmark workflows: this lists, scaffolds and prepares "
+            "them. Running one is the agent's job, under the AMI survey tools."
         ),
         epilog=(
             "examples:\n"
@@ -396,10 +396,10 @@ def main(argv: list[str] | None = None) -> int:
         ):
             print(line)
         print(
-            f"\nFill those in, then:\n"
-            f"  ami-run {args.workflow} --dry-run\n\n"
-            "BENCHMARKING.md has the walkthrough, including why the standard comes "
-            "before the prompt."
+            f"\nFill those in, then hand the prompt to your agent:\n"
+            f"  ami-workflow show {args.workflow}\n\n"
+            "The standard comes before the prompt: a grade against no standard is "
+            "the model's opinion of its own work."
         )
         return 0
 
@@ -451,11 +451,6 @@ def main(argv: list[str] | None = None) -> int:
     print("-" * 76)
     print(workflow.survey_request())
     print("-" * 76)
-    print(
-        f"\nOr run it against another model without Claude Code:\n\n"
-        f"    ami-survey/bin/ami-run {workflow.name} --provider openai --model gpt-4.1\n"
-        f"    ami-survey/bin/ami-run {workflow.name} --provider gemini --model gemini-2.5-pro\n"
-    )
     return 0
 
 

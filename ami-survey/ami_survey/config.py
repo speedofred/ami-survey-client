@@ -31,7 +31,6 @@ CACHE_DIR = DATA_DIR / "cache"  # LiteLLM price map cache
 
 GRADING_SCALE_FILE = CONFIG_DIR / "grading_scale.json"
 WORKFLOW_CATEGORIES_FILE = CONFIG_DIR / "workflow_categories.json"
-SCORING_REFERENCE_FILE = CONFIG_DIR / "scoring_reference.json"
 BENCHMARK_POLICY_FILE = CONFIG_DIR / "benchmark_policy.json"
 PRICING_OVERRIDES_FILE = CONFIG_DIR / "pricing_overrides.json"
 

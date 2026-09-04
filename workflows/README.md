@@ -106,46 +106,6 @@ the model it actually ran on. Neither you nor the agent supplies anything else.
 runtimes. Don't leave a Claude Code and a Codex session both working in this
 directory at once during a benchmark — the newest log wins.
 
-### Running it on a model with no agent harness
-
-The same prompt, the same survey, a different model:
-
-```bash
-export OPENAI_API_KEY=sk-...
-ami-survey/bin/ami-run support-ticket-triage --provider openai    --model gpt-4.1
-ami-survey/bin/ami-run support-ticket-triage --provider anthropic --model claude-sonnet-4-5
-ami-survey/bin/ami-run support-ticket-triage --provider gemini    --model gemini-2.5-pro
-```
-
-The runner drives an agent loop over `read_file` / `write_file` / `list_files` /
-`mark_stage`, records the usage block of every real response, and submits the
-survey — so a GPT run, a Gemini run and a Claude Code run land beside each other
-in the same benchmark. Because all of them read `workflow.json` for the workflow
-name, they group together automatically.
-
-```bash
-ami-survey/bin/ami-run support-ticket-triage --provider gemini --dry-run       # no API call
-ami-survey/bin/ami-run support-ticket-triage --provider openai --model gpt-5 \
-    --grade skip                                                               # grade it yourself
-ami-survey/bin/ami-run support-ticket-triage --provider openai --model llama3.3 \
-    --base-url http://localhost:11434/v1 --api-key-env OLLAMA_API_KEY          # local model
-```
-
-With `--grade auto` (the default) the model grades its own output against the AMI
-scale in one extra call, which is deliberately excluded from the telemetry — the
-same reason the survey turn is excluded from a Claude Code run. Check any
-self-grade against the answer key; a model grading itself is the weakest number in
-the table.
-
-Two caveats when comparing across runtimes:
-
-- `total_agent_runtime` for a runner run is client-observed request latency, while
-  a Claude Code run measures from the tool result that triggered each request.
-  Tokens, call counts and cost compare directly; treat runtime as indicative.
-- The runner's four file tools are not Claude Code's toolset. You are comparing
-  models at the same task, not harnesses at the same task — a weaker result may be
-  the tools, not the model.
-
 ## Adding your own
 
 The survey does not care what the workflow is. To make one benchmarkable it needs
