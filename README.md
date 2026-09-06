@@ -7,11 +7,12 @@ the AMI survey service.
 setup and covers macOS, Linux and Windows.
 
 **Not on Claude Code or Codex?** You do not need this repo. In claude.ai, add
-`https://survey.agentbenchmark.dev/mcp` as a custom connector — Settings →
+`https://submit.agentbenchmark.dev/mcp` as a custom connector — Settings →
 Connectors → Add custom connector — and ask your agent to take the survey.
 Nothing to install and no token to paste. Those runs are recorded as
-`unmeasured`, since a remote server cannot read your runtime's logs; install
-this client when you want the token counts and cost as well.
+`reported` rather than `measured`, since a remote server cannot read your
+runtime's logs; install this client when you want the token counts and cost
+measured rather than dictated.
 
 ## What this is
 
@@ -30,21 +31,27 @@ confidently. This reads the log instead.
 |---|---|
 | `ami_survey/adapters/` | reads a harness's own session log — one adapter per harness, currently Claude Code and Codex |
 | `ami_survey/mcp_server.py` | the `ami_*` tools your agent calls |
-| `ami_survey/client.py` | talks to the survey service |
+| `ami_survey/submission.py` | seals the finished run and posts it |
+| `amitransport/` | the sealing itself — the one part that needs a package |
 | `skills/` | the procedure, in the skill format Claude Code and Codex both read |
 | `scripts/install.py` | wires the above into your agent |
 | `workflows/` | a sample workflow to practise on |
 | `bin/` | the commands below |
 
-The survey service itself — the field definitions, scoring, pricing and storage —
-is not in this repository. This half runs on your machine; that half runs on the
-server, and the two speak over HTTPS.
+The scoring itself — how a run becomes a scorecard, and what it is ranked
+against — is not in this repository and does not run on your machine. This half
+measures; that half scores.
 
-Submissions go to **`survey.agentbenchmark.dev`** and nowhere else. That is a
-constant in the source, not a setting: there is no local survey to run here, and
-a result that never left your machine would not be comparable with anyone
-else's, which is the entire point of the exercise. You need a token to submit;
-ask whoever pointed you here.
+Submissions go to **`submit.agentbenchmark.dev`** and nowhere else. That is a
+constant in the source, not a setting: a result that never left your machine
+would not be comparable with anyone else's, which is the entire point.
+
+They go **sealed**. Your run is encrypted here, to a public key whose private
+half exists only on the scoring server — so the server that receives and holds
+your submission cannot read it. That is why sealing is the one thing in this
+client that needs a third-party package.
+
+A token is registered for you at install time; you do not need one in advance.
 
 ## Install
 
@@ -52,9 +59,12 @@ ask whoever pointed you here.
 python3 ami-survey/scripts/install.py --user
 ```
 
-It asks for your submission token, and that is the only thing to supply. Then
-restart your agent. `GETTING-STARTED.md` has the Windows form, the Codex form,
-and what to do when it does not work.
+Press Enter at the token prompt and it registers one for you. Then restart your
+agent. `GETTING-STARTED.md` has the Windows form, the Codex form, and what to do
+when it does not work.
+
+Install PyNaCl first if you have not: `python3 -m pip install --user PyNaCl`.
+Without it the tools appear in your agent and fail the moment one is called.
 
 ## Commands
 
@@ -103,8 +113,8 @@ ami-survey/bin/ami-skill --tools openai           # schemas as function defs
 **`ami-mcp`** — the MCP server your agent launches. `scripts/install.py` writes
 it into your agent's configuration; you rarely run it yourself.
 
-Reading the collected results is not here: submissions live on the survey
-service, and the dashboard there is where runs are compared.
+Reading the collected results is not here, and there is no self-service page for
+it yet: ask whoever issued your token for your scorecard.
 
 ## Removing it
 
@@ -120,7 +130,15 @@ shell commands. `GETTING-STARTED.md` sets this out in full.
 
 ## Requirements
 
-Python 3.9 or newer. Nothing to `pip install` — the standard library only.
+Python 3.9 or newer, and **PyNaCl**:
+
+```bash
+python3 -m pip install --user PyNaCl
+```
+
+That is the only dependency. Everything else is the standard library. On Debian
+and Ubuntu, where `pip` refuses with "externally-managed-environment", use
+`sudo apt install python3-nacl`.
 
 ## Licence
 

@@ -3,10 +3,22 @@
     python3 scripts/install.py --user
     python3 scripts/install.py --codex
 
-A published client submits to the hosted survey and has no other destination, so
-there is nothing to point it at - it asks for your token and that is all. A
-development checkout, which carries the server half, takes `--api-url` to submit
-somewhere other than the local API it would otherwise start.
+A published client builds its run on this machine, seals it, and posts it to the
+landing server - it has no other destination, so there is nothing to point it at
+and it asks for your token and that is all. A development checkout, which carries
+the server half, takes `--api-url` to reach an API other than the local one it
+would otherwise start.
+
+    python3 scripts/install.py --user --as-client
+
+`--as-client` makes a development checkout install itself the way a published
+client does: it registers a token and writes AMI_LOCAL_COLLECTOR into the agent's
+entry, so runs are sealed to the landing server rather than kept on this disk.
+Without it a checkout measures into its own local API, which is right for
+developing the survey and wrong for taking one.
+
+The token it writes is AMI_SUBMIT_TOKEN, which is what the sealing code reads.
+An installer that wrote the old AMI_API_TOKEN put it somewhere nothing looked.
 
 Written in Python rather than shell for one decisive reason: **the interpreter
 running this script is the interpreter written into the configuration.** On
@@ -24,6 +36,8 @@ import argparse
 import getpass
 import json
 import os
+import urllib.error
+import urllib.request
 import re
 import shutil
 import sys
@@ -97,16 +111,37 @@ def _write_json_atomically(target: Path, mutate) -> None:
         print(f"backup   -> {backup}")
 
 
-def server_entry(api_url: str, api_token: str) -> dict:
-    env = {"PYTHONPATH": str(ROOT)}
+#: Where a published client submits unless told otherwise. Compared against so
+#: that the destination is only written into an agent's configuration when it
+#: has actually been changed - a value that is always present reads as a setting,
+#: and the first thing anyone does with a setting is change it.
+DEFAULT_LANDING_URL = "https://submit.agentbenchmark.dev"
+
+
+def server_entry(api_url: str, api_token: str, *, as_client: bool = False) -> dict:
+    # Both the package and its parent: ami_survey and amitransport sit side by
+    # side, and sealing a submission needs the second.
+    env = {"PYTHONPATH": os.pathsep.join([str(ROOT), str(ROOT.parent)])}
+    # What the collector actually reads when it seals a submission. AMI_API_TOKEN
+    # authenticated the hosted survey API; a published client no longer talks to
+    # one - it builds the run here and posts a sealed envelope to the landing
+    # server, which is a different destination and a different token.
+    if api_token:
+        env["AMI_SUBMIT_TOKEN"] = api_token
+    if config.LANDING_URL != DEFAULT_LANDING_URL:
+        env["AMI_LANDING_URL"] = config.LANDING_URL
     # Written into the entry, never exported: a desktop agent is launched from
     # the Dock or Start menu and inherits nothing from your terminal.
-    if not config.SERVER_HALF_PRESENT:
-        # No AMI_API_URL: this client reads none. Writing one would suggest the
-        # destination is a setting, and the first thing anyone does with a
-        # setting is change it.
-        env["AMI_API_TOKEN"] = api_token
-    elif api_url:
+    #
+    # That cuts both ways, and it is why this variable is written here rather
+    # than left to the caller's shell. A development checkout carries the server
+    # half, so `LOCAL_COLLECTOR` is false and the run would go to the local API
+    # and stay on this disk. Exporting AMI_LOCAL_COLLECTOR before running this
+    # installer changes the installer's own import and nothing else - the agent
+    # it configures never sees it.
+    if as_client and config.SERVER_HALF_PRESENT:
+        env["AMI_LOCAL_COLLECTOR"] = "1"
+    elif config.SERVER_HALF_PRESENT and api_url:
         env |= {
             "AMI_API_URL": api_url,
             "AMI_API_TOKEN": api_token,
@@ -131,8 +166,6 @@ def register(scope: str, label: str = "") -> str:
     to go and read a different page in the middle of a setup they are already
     halfway through.
     """
-    from ami_survey import client
-
     if not label:
         sys.stdout.flush()
         try:
@@ -146,24 +179,34 @@ def register(scope: str, label: str = "") -> str:
         print("\nThat name is too short to be recognisable later.", file=sys.stderr)
         raise SystemExit(1)
 
-    print(f"\nRegistering with {config.SURVEY_SERVICE_URL} ...")
+    # Straight to the landing server, not through client.post: a published
+    # client answers its own calls in-process now, so posting through it would
+    # look for a local route and never leave the machine.
+    print(f"\nRegistering with {config.LANDING_URL} ...")
+    request = urllib.request.Request(
+        config.LANDING_URL.rstrip("/") + "/tokens",
+        data=json.dumps({"label": label, "agent": {"name": AGENT_NAMES.get(scope, "unknown")}}).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
     try:
-        result = client.post("/tokens", {
-            "label": label,
-            "agent": {"name": AGENT_NAMES.get(scope, "unknown")},
-        })
-    except client.ApiCallFailed as exc:
-        detail = exc.payload.get("error") if isinstance(exc.payload, dict) else exc.payload
-        print(f"\nThe survey refused the registration: {detail}", file=sys.stderr)
-        if exc.status == 404:
-            print("This survey is not open for self-registration. Ask whoever "
-                  "pointed you here for a token.", file=sys.stderr)
-        elif exc.status == 429:
-            print("Too many tokens have been issued recently. Wait a while, or "
+        with urllib.request.urlopen(request, timeout=30) as response:
+            result = json.loads(response.read().decode())
+    except urllib.error.HTTPError as exc:
+        with exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:300]
+        if exc.code == 404:
+            print("\nThis survey does not issue tokens to callers. Ask whoever "
+                  "pointed you here for one, then run this again with\n"
+                  "  --api-token <the token you were given>", file=sys.stderr)
+        elif exc.code == 429:
+            print("\nToo many tokens have been issued recently. Wait a while, or "
                   "ask for one directly.", file=sys.stderr)
+        else:
+            print(f"\nThe registration was refused: {detail}", file=sys.stderr)
         raise SystemExit(1)
-    except client.ApiUnavailable as exc:
-        print(f"\nCould not reach the survey: {exc}", file=sys.stderr)
+    except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
+        print(f"\nCould not reach {config.LANDING_URL}: {exc}", file=sys.stderr)
         raise SystemExit(1)
 
     token = result["token"]
@@ -172,7 +215,9 @@ def register(scope: str, label: str = "") -> str:
     print("recoverable - keep a copy if you want to reinstall without")
     print("registering again. It is being written into your agent's")
     print("configuration now, so you do not need to do anything with it.")
-    print(f"\nLimit: {result['limits']['submissions']} submissions on this token.")
+    limits = result.get("limits") or {}
+    if limits.get("submissions"):
+        print(f"\nLimit: {limits['submissions']} submissions on this token.")
     return token
 
 
@@ -198,7 +243,8 @@ def _existing_token(project_root: Path) -> tuple[str, str]:
     string in a file we wrote, and failing to find it costs nothing but a
     prompt the operator was going to see anyway.
     """
-    pattern = re.compile(r'AMI_API_TOKEN"?\s*[:=]\s*"([^"\s]+)"')
+    # Either name: installs before the landing server wrote AMI_API_TOKEN.
+    pattern = re.compile(r'AMI_(?:SUBMIT|API)_TOKEN"?\s*[:=]\s*"([^"\s]+)"')
     for label, path in _token_sources(project_root):
         try:
             found = pattern.search(path.read_text(errors="replace"))
@@ -209,7 +255,7 @@ def _existing_token(project_root: Path) -> tuple[str, str]:
     return "", ""
 
 
-def install(scope: str, api_url: str, api_token: str) -> int:
+def install(scope: str, api_url: str, api_token: str, as_client: bool = False) -> int:
     if sys.version_info < (3, 9):
         print(f"This needs Python 3.9 or newer. Running under {sys.version.split()[0]}.",
               file=sys.stderr)
@@ -227,8 +273,8 @@ def install(scope: str, api_url: str, api_token: str) -> int:
     print(f"  python:   {sys.executable} ({sys.version.split()[0]})")
     print(f"  platform: {sys.platform}")
     print(f"  scope:    {scope}")
-    if not config.SERVER_HALF_PRESENT:
-        print(f"  survey:   {config.SURVEY_SERVICE_URL} (the only destination)")
+    if not config.SERVER_HALF_PRESENT or as_client:
+        print(f"  submit:   {config.LANDING_URL} (the only destination)")
     elif api_url:
         print(f"  survey:   {api_url} (token supplied)")
     print()
@@ -248,7 +294,7 @@ def install(scope: str, api_url: str, api_token: str) -> int:
         # TOML inline table with bare keys, which is what Codex's own docs show.
         env = ", ".join(
             f"{k} = {json.dumps(v)}"
-            for k, v in server_entry(api_url, api_token)["env"].items()
+            for k, v in server_entry(api_url, api_token, as_client=as_client)["env"].items()
         )
         print(f"""
 mcp: add this to {home / '.codex' / 'config.toml'}
@@ -266,13 +312,14 @@ Then FULLY QUIT and reopen Codex - it reads this only at launch.""")
     _write_json_atomically(
         target,
         lambda cfg: cfg.setdefault("mcpServers", {}).__setitem__(
-            "ami-survey", server_entry(api_url, api_token)
+            "ami-survey", server_entry(api_url, api_token, as_client=as_client)
         ),
     )
     print(f"mcp      -> {target} (server 'ami-survey')")
     print()
-    if not config.SERVER_HALF_PRESENT:
-        print(f"Surveys go to {config.SURVEY_SERVICE_URL}. Nothing is kept here.")
+    if not config.SERVER_HALF_PRESENT or as_client:
+        print(f"Submissions are sealed and sent to {config.LANDING_URL}.")
+        print("Nothing is kept here.")
         print()
     elif not api_url:
         print("API: the MCP server starts a local one on first use.")
@@ -293,6 +340,10 @@ def main(argv: list[str] | None = None) -> int:
                        help="this user: ~/.claude.json and ~/.claude/skills")
     scope.add_argument("--codex", action="store_const", const="codex", dest="scope",
                        help="Codex: ~/.codex/skills, plus the config to paste")
+    parser.add_argument("--as-client", action="store_true",
+                        help="development checkouts only: install the way a "
+                             "published client is, sealing each run to the "
+                             "landing server instead of keeping it on this disk")
     parser.add_argument("--api-url", default="",
                         help="development checkouts only: submit to a hosted "
                              "survey instead of the local API")
@@ -308,14 +359,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     api_url = args.api_url
-    if not config.SERVER_HALF_PRESENT:
+    # A published client is a client by construction; a development checkout
+    # becomes one on request. Below this line the two are the same install, which
+    # is the point - the path a tester walks is the path we walk to test it.
+    as_client = args.as_client or not config.SERVER_HALF_PRESENT
+    if as_client:
         # Accepted and ignored rather than rejected: the old command line is
         # written down in guides and in people's shell history, and failing it
         # would teach nothing that this does not.
-        if api_url and api_url.rstrip("/") != config.SURVEY_SERVICE_URL:
-            print(f"note: --api-url is ignored; this client submits to "
-                  f"{config.SURVEY_SERVICE_URL} and nowhere else.\n", file=sys.stderr)
-        api_url = config.SURVEY_SERVICE_URL
+        if api_url and api_url.rstrip("/") != config.LANDING_URL:
+            print(f"note: --api-url is ignored; this client seals its submissions "
+                  f"to {config.LANDING_URL} and nowhere else.\n", file=sys.stderr)
+        api_url = config.LANDING_URL
 
     scope = args.scope or "project"
     token = args.api_token
@@ -342,17 +397,18 @@ def main(argv: list[str] | None = None) -> int:
         # question appearing above the explanation of what is being asked.
         try:
             token = getpass.getpass(
-                f"\nSubmitting to {api_url}\n"
-                "If you already have a submission token, paste it now.\n"
-                "If you do not, just press Enter and one will be registered for you.\n"
-                "\nToken (hidden, or Enter to register): "
+                f"\nSubmissions are sealed and sent to {api_url}\n"
+                "Paste the submission token you were given.\n"
+                "Pressing Enter instead will ask that server for one, which it may\n"
+                "decline - not every survey issues tokens to callers.\n"
+                "\nToken (hidden, or Enter to ask): "
             )
         except EOFError:
             token = ""
         if not token:
             token = register(scope, args.label)
 
-    return install(scope, api_url, token)
+    return install(scope, api_url, token, as_client)
 
 
 if __name__ == "__main__":

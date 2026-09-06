@@ -1,0 +1,12 @@
+# The only third-party dependency in this repository.
+#
+# ami_survey itself is deliberately stdlib-only and stays that way. Sealing a
+# submission is the one thing the standard library cannot do: it has hashing,
+# HMAC, a CSPRNG and TLS, but no cipher and no public-key primitives, and
+# building an AEAD out of what is there is not a reasonable trade.
+#
+# PyNaCl is here for one call. SealedBox is exactly the primitive this needs -
+# encrypt to a public key, anonymous sender, ephemeral key discarded - rather
+# than an assembly of key exchange, derivation and cipher that would be mine to
+# get right.
+PyNaCl>=1.5

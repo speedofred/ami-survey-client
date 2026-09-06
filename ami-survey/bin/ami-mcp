@@ -2,5 +2,8 @@
 # Start the AMI survey MCP server (stdio). This is what an MCP client launches.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+# $HERE holds ami_survey; its parent holds amitransport, which the
+# collector needs to seal a submission. Both, so an import of either
+# resolves the same way here and in the published client.
+export PYTHONPATH="$HERE:$HERE/..${PYTHONPATH:+:$PYTHONPATH}"
 exec "${AMI_PYTHON:-python3}" -m ami_survey.mcp_server "$@"

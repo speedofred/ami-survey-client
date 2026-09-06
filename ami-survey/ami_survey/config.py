@@ -63,6 +63,30 @@ else:
     API_HOST, API_PORT = "", 0
     API_URL = SURVEY_SERVICE_URL
 
+# Whether the run is assembled here rather than by a server.
+#
+# The published client has no server half: there is nothing to talk to over HTTP
+# and nobody to authenticate against, so it opens the run, records the calls and
+# closes it in this process, then seals the result. That is not a convenience -
+# call records carry prompts and shell commands, and building the document
+# locally is what keeps them on this machine until they are unreadable.
+#
+# Development keeps using the local HTTP API, so api.py stays exercised by the
+# tests that cover it. AMI_LOCAL_COLLECTOR=1 forces the collector path either way.
+LOCAL_COLLECTOR = (
+    os.environ.get("AMI_LOCAL_COLLECTOR", "").strip().lower() in ("1", "true", "yes")
+    or not SERVER_HALF_PRESENT
+)
+
+# Where a sealed submission goes. The collector needs no other destination:
+# it builds the document, seals it to the key this server publishes, and posts
+# it. Nothing else on that box can read what it sent.
+LANDING_URL = os.environ.get("AMI_LANDING_URL", "https://submit.agentbenchmark.dev")
+
+# Issued per client on the landing server. Absent, the collector can still build
+# and inspect a document; it just cannot submit one.
+SUBMIT_TOKEN = os.environ.get("AMI_SUBMIT_TOKEN", "")
+
 # Claude Code transcript location (the concrete telemetry source for this runtime).
 CLAUDE_PROJECTS_DIR = _path_env(
     "AMI_CLAUDE_PROJECTS_DIR", Path.home() / ".claude" / "projects"

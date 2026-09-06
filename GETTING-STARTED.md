@@ -42,16 +42,27 @@ You need three things:
 
 1. **An AI coding agent on your computer** — Claude Code or Codex. This works
    with what you already use; you don't install a new assistant.
-2. **Nothing else.** The setup gets its own submission token when you run it —
-   press Enter at the prompt and it registers one for you. If somebody has
-   already sent you a token, paste that instead; treat it like a password.
-3. **Python 3.9 or newer.**
+2. **Python 3.9 or newer.**
    - **macOS** — already installed. Nothing to do.
    - **Windows** — install it from [python.org](https://www.python.org/downloads/),
      and **tick "Add python.exe to PATH"** on the first screen of the installer.
      Do not install it from the Microsoft Store; the Store version behaves
      oddly when other programs try to launch it.
    - **Linux** — `sudo apt install python3 git` or your distribution's equivalent.
+3. **One Python package: PyNaCl.** It is what seals your submission before it
+   leaves the machine, and it is the only thing to install.
+
+   ```bash
+   python3 -m pip install --user PyNaCl
+   ```
+
+   On Windows that is `python -m pip install --user PyNaCl`. On Debian and
+   Ubuntu, `pip` may refuse with an "externally-managed-environment" error; use
+   `sudo apt install python3-nacl` there instead.
+
+You do **not** need a token in advance. The setup registers one for you — press
+Enter at the prompt. If somebody has already sent you one, paste that instead
+and treat it like a password.
 
 > **A note on the terminal.** A few steps need you to type commands. On macOS
 > that's **Terminal**; on Windows, **PowerShell** (press Start and type
@@ -116,9 +127,9 @@ The token it registers is shown once. Keep a copy if you ever want to reinstall
 without registering again — but nothing breaks if you don't, you just register
 another.
 
-There is nothing to configure beyond that. Surveys go to
-`survey.agentbenchmark.dev`; the tool has no other destination, so there is no
-setting to get wrong and no way to end up measuring into a void.
+There is nothing to configure beyond that. Submissions are sealed on your machine
+and sent to `submit.agentbenchmark.dev`; the tool has no other destination, so
+there is no setting to get wrong and no way to end up measuring into a void.
 
 Codex will print a short block of configuration and ask you to paste it into a
 file. Follow what it says on screen.
@@ -350,10 +361,17 @@ executed are stripped before storage, as are file paths, your username and your
 session identifiers.
 
 The measurement happens on your machine. Only the finished summary travels, and
-it travels to one place: `survey.agentbenchmark.dev`, over HTTPS. This tool does
-not keep a copy for you — the survey is the shared benchmark, not a private
-report — and you can read back your own submissions, and only your own, through
-the links it prints when you submit.
+it travels to one place: `submit.agentbenchmark.dev`, over HTTPS.
+
+It travels **sealed**. The summary is encrypted on your machine to a public key
+whose private half exists only on the scoring server, so the server that receives
+it and holds it cannot read it — that is a stronger guarantee than a promise to
+delete, and it is why the receiving server is a separate machine from the one
+that scores.
+
+This tool does not keep a copy for you: the survey is the shared benchmark, not a
+private report. There is no self-service page to read your results back yet —
+ask whoever issued your token for your scorecard.
 
 ---
 
@@ -390,6 +408,11 @@ it is rather than deleting the ground it is standing on.
 **"I don't have that tool" / nothing happens**
 The restart. Fully quit the app — Cmd-Q on macOS, Alt+F4 on Windows, not just
 closing the window — and reopen. Settings are read only at launch.
+
+**The tools are there, but every one of them errors — "No module named 'nacl'"**
+PyNaCl is missing. The MCP server starts without it and only fails when a tool
+actually runs, which is why this looks like a broken survey rather than a missing
+package. `python3 -m pip install --user PyNaCl`, then restart your agent.
 
 **"Unrecognised token"**
 The token is wrong, expired, or was revoked. Check for a stray space when you

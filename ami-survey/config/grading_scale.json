@@ -1,0 +1,46 @@
+{
+  "scale_id": "ami-quality-v2",
+  "description": "AMI output-quality grading scale. `agent_output_grade` must be one of the grade codes below, and the API rejects anything else rather than storing it. `numeric_value` IS the Agent Quality score - it is used directly, with no second lookup table between the grade and the score, because a translation step between two scales is exactly where a grade silently changes meaning. Replace this file with your organisation's agreed scale if it differs, but keep that property.",
+  "requires_justification": true,
+  "requires_evidence": true,
+  "min_justification_chars": 40,
+  "allowed_graders": ["self", "human", "external_reviewer"],
+  "grades": [
+    {
+      "code": "Excellent",
+      "label": "Usable as-is",
+      "definition": "Output meets every stated requirement of the workflow and is usable with no human edit.",
+      "numeric_value": 100
+    },
+    {
+      "code": "Good",
+      "label": "Minor edits needed",
+      "definition": "Output meets the substantive requirements; a human would make cosmetic or small factual corrections before use.",
+      "numeric_value": 80
+    },
+    {
+      "code": "Acceptable",
+      "label": "Material rework needed",
+      "definition": "Output is directionally correct but a human must materially rework part of it before use.",
+      "numeric_value": 60
+    },
+    {
+      "code": "Poor",
+      "label": "Mostly redone",
+      "definition": "Output misses or misinterprets requirements; most of the work would be redone by a human.",
+      "numeric_value": 40
+    },
+    {
+      "code": "Unusable",
+      "label": "No usable value",
+      "definition": "Output is wrong, incomplete to the point of no value, or was not produced.",
+      "numeric_value": 20
+    },
+    {
+      "code": "NOT_GRADED",
+      "label": "Not graded",
+      "definition": "No grade was assigned. Use only when the workflow produced no reviewable output or grading was deliberately deferred to a human reviewer. Agent Quality is unavailable for the run, and so is any score derived from it.",
+      "numeric_value": null
+    }
+  ]
+}

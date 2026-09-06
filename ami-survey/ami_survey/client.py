@@ -44,6 +44,19 @@ class ApiCallFailed(RuntimeError):
 
 
 def _request(method: str, path: str, body: dict | None = None, timeout: float = 30.0):
+    if config.LOCAL_COLLECTOR:
+        # Answered in this process. Imported here rather than at module scope so
+        # a hosted client never loads the run machinery it will not use.
+        from . import localapi
+
+        try:
+            return localapi.handle(method, path, body)
+        except localapi.LocalCallFailed as exc:
+            # Re-raised as the error every caller already handles: the MCP tools
+            # branch on status - buffering a stage marker on 404 or 409 - and a
+            # second exception type would quietly bypass all of that.
+            raise ApiCallFailed(exc.status, exc.payload) from exc
+
     url = config.API_URL.rstrip("/") + path
     data = json.dumps(body or {}).encode() if method == "POST" else None
     req = urllib.request.Request(url, data=data, method=method)
