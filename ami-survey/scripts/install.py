@@ -234,6 +234,14 @@ def _token_sources(project_root: Path) -> list[tuple[str, Path]]:
     ]
 
 
+#: The old survey API prefixed the tokens it issued; the landing server does not
+#: - it mints a bare `secrets.token_urlsafe(32)`. So a token wearing this prefix
+#: was issued by a server that no longer exists, and reusing it would configure a
+#: credential that cannot work. The names in the config files cannot tell the two
+#: apart - both were written as AMI_API_TOKEN - but the values can.
+RETIRED_TOKEN_PREFIX = "amis_"
+
+
 def _existing_token(project_root: Path) -> tuple[str, str]:
     """A token this machine already holds, and where it was found.
 
@@ -250,7 +258,7 @@ def _existing_token(project_root: Path) -> tuple[str, str]:
             found = pattern.search(path.read_text(errors="replace"))
         except OSError:
             continue
-        if found:
+        if found and not found.group(1).startswith(RETIRED_TOKEN_PREFIX):
             return found.group(1), label
     return "", ""
 
